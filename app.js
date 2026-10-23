@@ -1,7 +1,7 @@
 import { CONFIG } from './config.js';
 
 /* ═════════════ Data layer: Firebase (online) or Local (demo) ═════════════ */
-const COLS = ['items', 'locations', 'staff', 'moves', 'stocktakes'];
+const COLS = ['items', 'locations', 'staff', 'moves', 'stocktakes', 'audit'];
 
 function localBackend() {
   const key = c => 'inv_' + c;
@@ -13,11 +13,19 @@ function localBackend() {
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   return {
     mode: 'local',
+    authed: () => true,
     watch(c, cb) { (subs[c] = subs[c] || []).push(cb); cb(read(c)); },
     async add(c, obj) { const id = uid(); write(c, [...read(c), { ...obj, id }]); return id; },
     async addMany(c, objs) { write(c, [...read(c), ...objs.map(o => ({ ...o, id: uid() }))]); },
     async update(c, id, patch) { write(c, read(c).map(x => x.id === id ? { ...x, ...patch } : x)); },
-    async remove(c, id) { write(c, read(c).filter(x => x.id !== id)); }
+    async remove(c, id) { write(c, read(c).filter(x => x.id !== id)); },
+    newId: () => uid(),
+    async batch(ops) {
+      for (const o of ops) {
+        if (o.type === 'set') write(o.col, [...read(o.col).filter(x => x.id !== o.id), { ...o.data, id: o.id }]);
+        else write(o.col, read(o.col).map(x => x.id === o.id ? { ...x, ...o.data } : x));
+      }
+    }
   };
 }
 
@@ -30,10 +38,14 @@ async function firebaseBackend(cfg) {
   let db;
   try { db = fs.initializeFirestore(app, { localCache: fs.persistentLocalCache({ tabManager: fs.persistentMultipleTabManager() }) }); }
   catch { db = fs.getFirestore(app); }
-  await au.signInAnonymously(au.getAuth(app));
+  const auth = au.getAuth(app);
+  await new Promise(r => { const un = au.onAuthStateChanged(auth, () => { un(); r(); }); });
   return {
     mode: 'firebase',
-    watch(c, cb) { fs.onSnapshot(fs.collection(db, c), s => cb(s.docs.map(d => ({ ...d.data(), id: d.id })))); },
+    authed: () => !!auth.currentUser && !auth.currentUser.isAnonymous,
+    signIn: (email, pass) => au.signInWithEmailAndPassword(auth, email, pass),
+    signOut: () => au.signOut(auth),
+    watch(c, cb, onErr) { fs.onSnapshot(fs.collection(db, c), s => cb(s.docs.map(d => ({ ...d.data(), id: d.id }))), e => onErr && onErr(e)); },
     async add(c, obj) { return (await fs.addDoc(fs.collection(db, c), obj)).id; },
     async addMany(c, objs) {
       for (let i = 0; i < objs.length; i += 400) {
@@ -43,7 +55,13 @@ async function firebaseBackend(cfg) {
       }
     },
     async update(c, id, patch) { await fs.updateDoc(fs.doc(db, c, id), patch); },
-    async remove(c, id) { await fs.deleteDoc(fs.doc(db, c, id)); }
+    async remove(c, id) { await fs.deleteDoc(fs.doc(db, c, id)); },
+    newId: () => fs.doc(fs.collection(db, 'audit')).id,
+    async batch(ops) {
+      const b = fs.writeBatch(db);
+      for (const o of ops) { const ref = fs.doc(db, o.col, o.id); o.type === 'set' ? b.set(ref, o.data) : b.update(ref, o.data); }
+      await b.commit();
+    }
   };
 }
 
@@ -63,7 +81,8 @@ const UNITS = ['كغم', 'غم', 'لتر', 'مل', 'قطعة', 'حبة', 'بطل
 
 /* ═════════════ State ═════════════ */
 const S = {
-  items: [], locations: [], staff: [], moves: [], stocktakes: [],
+  items: [], locations: [], staff: [], moves: [], allMoves: [], stocktakes: [], audit: [],
+  aud: { tab: 'edit', from: monthStart(), to: today() },
   loaded: new Set(),
   user: null,
   view: 'home',
@@ -93,6 +112,8 @@ const itemById = id => S.items.find(i => i.id === id);
 const locById = id => S.locations.find(l => l.id === id);
 const locName = id => locById(id)?.name || '—';
 const isAdmin = () => S.user?.role === 'admin';
+const canEdit = () => isAdmin() || S.user?.canEdit === true;
+const mName = m => itemById(m.itemId)?.name || m.itemName || '';
 const activeItems = () => S.items.filter(i => i.active !== false).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
 const activeLocs = () => S.locations.filter(l => l.active !== false).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name, 'ar'));
 const packOf = it => (it?.bigUnit && +it.pack > 0) ? +it.pack : 1;
@@ -190,14 +211,43 @@ async function boot() {
     return;
   }
   document.title = CONFIG.title || 'نظام المخزن';
+  if (!B.authed()) return renderDevice();
+  startData();
+}
+function renderDevice(err) {
+  $('#app').innerHTML = `<div class="login"><div class="box">
+    <h1>${esc(CONFIG.title)}</h1><p class="sub">هذا الجهاز غير مفعّل. يفعّله المدير مرة وحدة بكلمة سر المطعم.</p>
+    <div class="field"><label>إيميل المطعم</label><input class="in" id="dv-e" dir="ltr" value="${esc(CONFIG.deviceEmail || '')}"></div>
+    <div class="field"><label>كلمة سر المطعم</label><input class="in" id="dv-p" type="password" dir="ltr"></div>
+    <button class="btn big" id="dv-go">تفعيل الجهاز</button>
+    ${err ? `<p class="hint bad">${esc(err)}</p>` : ''}
+  </div></div>`;
+  const go = async () => {
+    const e = $('#dv-e').value.trim(), p = $('#dv-p').value;
+    if (!e || !p) return toast('اكتب الإيميل وكلمة السر', true);
+    $('#dv-go').disabled = true;
+    try { await B.signIn(e, p); startData(); }
+    catch (x) { renderDevice(/invalid|wrong|not-found|credential/i.test(x.code || '') ? 'الإيميل أو كلمة السر غير صحيحة' : 'تعذّر التفعيل: ' + (x.code || x.message)); }
+  };
+  $('#dv-go').onclick = go;
+  $('#dv-p').onkeydown = e => { if (e.key === 'Enter') go(); };
+}
+let started = false;
+function startData() {
+  if (started) return; started = true;
+  $('#app').innerHTML = '<div class="boot">جاري تحميل البيانات…</div>';
   const saved = localStorage.getItem('inv_session');
+  const onErr = e => {
+    console.error(e);
+    if (e.code === 'permission-denied') { started = false; B.signOut && B.signOut(); renderDevice('هذا الجهاز ما عنده صلاحية. فعّله من جديد.'); }
+  };
   COLS.forEach(c => B.watch(c, rows => {
+    if (c === 'moves') { rows.sort((a, b) => a.ts - b.ts); S.allMoves = rows; rows = rows.filter(m => !m.deleted); }
     S[c] = rows; S.loaded.add(c);
-    if (c === 'moves') S.moves.sort((a, b) => a.ts - b.ts);
     if (c === 'staff' && saved && !S.user) { const u = rows.find(s => s.id === saved && s.active !== false); if (u) S.user = u; }
     if (c === 'staff' && S.user) { const u = rows.find(s => s.id === S.user.id); if (!u || u.active === false) { S.user = null; localStorage.removeItem('inv_session'); } else S.user = u; }
     if (S.loaded.size === COLS.length) onData();
-  }));
+  }, onErr));
 }
 function onData() {
   // Avoid wiping forms the user is filling
@@ -213,6 +263,7 @@ const NAV = [
   ['log', '🧾', 'السجل'],
   ['stocktake', '⚖️', 'الجرد', true],
   ['reports', '📊', 'التقارير', true],
+  ['audit', '🕵️', 'التعديلات والحذف', true],
   ['admin', '⚙️', 'الإدارة', true]
 ];
 function render() {
@@ -234,7 +285,7 @@ function render() {
   document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
   const lo = () => { S.user = null; localStorage.removeItem('inv_session'); render(); };
   $('#lo').onclick = lo; $('#lo2').onclick = lo;
-  const views = { home: vHome, move: vMove, stock: vStock, log: vLog, stocktake: vStocktake, reports: vReports, admin: vAdmin };
+  const views = { home: vHome, move: vMove, stock: vStock, log: vLog, stocktake: vStocktake, reports: vReports, audit: vAudit, admin: vAdmin };
   views[S.view]();
   window.scrollTo(0, 0);
 }
@@ -501,23 +552,23 @@ function movesTable(list, withDelete) {
   if (!list.length) return `<div class="empty">ما اكو حركات</div>`;
   return `<div class="tbl-wrap"><table>
     <tr><th>الوقت</th><th>النوع</th><th>المادة</th><th class="num">الكمية</th><th>المكان</th><th>السبب / ملاحظة</th><th>الموظف</th>${isAdmin() ? '<th class="num">الكلفة</th>' : ''}${withDelete ? '<th></th>' : ''}</tr>
-    ${list.map(m => `<tr>
+    ${list.map(m => `<tr ${m.deleted ? 'style="opacity:.55;text-decoration:line-through"' : ''}>
       <td class="small">${dt(m.ts)}</td>
       <td class="t-${m.type}"><b>${TYPES[m.type]?.ic || ''} ${TYPES[m.type]?.label || m.type}</b></td>
-      <td>${esc(m.itemName)}</td>
+      <td>${esc(mName(m))}${m.editCount ? ' <span class="badge b-warn" title="انعدلت">معدّلة</span>' : ''}</td>
       <td class="num">${N(m.qty, m.type === 'adjust')} ${esc(m.unit)}${m.factor > 1 ? `<div class="small muted">${N(m.baseQty)} ${esc(m.baseUnit)}</div>` : ''}</td>
       <td class="small">${esc(moveText(m))}</td>
       <td class="small">${esc([m.reason, m.ref, m.note].filter(Boolean).join(' — '))}</td>
       <td class="small">${esc(m.staffName)}</td>
       ${isAdmin() ? `<td class="num">${m.cost ? money(m.cost) : ''}</td>` : ''}
-      ${withDelete ? `<td><button class="link bad" data-del="${m.id}">حذف</button></td>` : ''}
+      ${withDelete ? `<td style="white-space:nowrap">${m.type !== 'adjust' ? `<button class="link" data-edit="${m.id}">تعديل</button>` : ''}${m.type !== 'adjust' || isAdmin() ? ` <button class="link bad" data-del="${m.id}">حذف</button>` : ''}</td>` : ''}
     </tr>`).join('')}
   </table></div>`;
 }
 function vLog() {
   const f = S.log;
   const list = S.moves.filter(m => m.ts >= dayStartTs(f.from) && m.ts <= dayEndTs(f.to)
-    && (!f.type || m.type === f.type) && (!f.staff || m.staffId === f.staff) && (!f.q || (m.itemName || '').includes(f.q))).reverse();
+    && (!f.type || m.type === f.type) && (!f.staff || m.staffId === f.staff) && (!f.q || mName(m).includes(f.q))).reverse();
   $('#view-root').innerHTML = `
     <div class="topline"><h1>سجل الحركات</h1><button class="btn ghost sm" id="lg-csv">تصدير</button></div>
     <div class="card">
@@ -529,18 +580,124 @@ function vLog() {
         <label class="small">المادة<br><input class="in" id="f-q" value="${esc(f.q)}" placeholder="بحث"></label>
       </div>
       <div class="small muted" style="margin-bottom:8px">${list.length} حركة</div>
-      ${movesTable(list.slice(0, 500), isAdmin())}
+      ${movesTable(list.slice(0, 500), canEdit())}
       ${list.length > 500 ? '<div class="hint">يظهر أول 500 حركة — ضيّق التاريخ أو صدّر الملف.</div>' : ''}
     </div>`;
   const on = (id, k) => $(id).onchange = e => { S.log[k] = e.target.value; vLog(); };
   on('#f-from', 'from'); on('#f-to', 'to'); on('#f-type', 'type'); on('#f-staff', 'staff'); on('#f-q', 'q');
-  document.querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
-    const m = S.moves.find(x => x.id === b.dataset.del);
-    if (await confirmBox(`حذف حركة ${TYPES[m.type].label} — ${esc(m.itemName)} ${fmt(m.qty)} ${esc(m.unit)}؟ الأرصدة راح تتعدل.`, 'حذف', true)) { await B.remove('moves', m.id); toast('انحذفت الحركة'); }
-  });
+  document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => editMove(S.moves.find(x => x.id === b.dataset.edit)));
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => deleteMove(S.moves.find(x => x.id === b.dataset.del)));
   $('#lg-csv').onclick = () => csvDownload(`سجل_الحركات_${f.from}_${f.to}.csv`,
     [['التاريخ', 'النوع', 'المادة', 'الكمية', 'الوحدة', 'الكمية بالأساسية', 'الوحدة الأساسية', 'من', 'إلى', 'سعر الوحدة', 'الكلفة', 'السبب', 'الوصل', 'ملاحظة', 'الموظف'],
-      ...list.map(m => [dt(m.ts), TYPES[m.type]?.label, m.itemName, m.qty, m.unit, m.baseQty, m.baseUnit, m.fromLoc ? locName(m.fromLoc) : '', m.toLoc ? locName(m.toLoc) : '', m.price || '', m.cost || '', m.reason, m.ref, m.note, m.staffName])]);
+      ...list.map(m => [dt(m.ts), TYPES[m.type]?.label, mName(m), m.qty, m.unit, m.baseQty, m.baseUnit, m.fromLoc ? locName(m.fromLoc) : '', m.toLoc ? locName(m.toLoc) : '', m.price || '', m.cost || '', m.reason, m.ref, m.note, m.staffName])]);
+}
+
+/* ═════════════ Edit / delete with audit trail ═════════════ */
+const AUD_FIELDS = { unit: 'الوحدة', qty: 'الكمية', price: 'السعر', fromLoc: 'من مكان', toLoc: 'إلى مكان', reason: 'السبب', note: 'ملاحظة', ref: 'الوصل' };
+const audVal = (k, v) => (k === 'fromLoc' || k === 'toLoc') ? (v ? locName(v) : '—') : (k === 'qty' || k === 'price') ? fmt(v) : (v || '—');
+const moveSnap = m => ({ unit: m.unit, qty: m.qty, factor: m.factor, baseQty: m.baseQty, price: m.price || 0, cost: m.cost || 0, fromLoc: m.fromLoc || '', toLoc: m.toLoc || '', reason: m.reason || '', note: m.note || '', ref: m.ref || '' });
+function editMove(m) {
+  if (!m || !canEdit()) return;
+  const it = itemById(m.itemId);
+  if (!it) return toast('المادة محذوفة من البطاقة', true);
+  const locs = activeLocs();
+  const needFrom = ['out', 'transfer', 'waste', 'return'].includes(m.type), needTo = ['in', 'transfer', 'opening'].includes(m.type), needPrice = ['in', 'opening'].includes(m.type);
+  const reasons = m.type === 'out' ? OUT_REASONS : m.type === 'waste' ? WASTE_REASONS : null;
+  const lo = sel => locs.map(l => `<option value="${l.id}" ${sel === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('');
+  modal(`<h2>تعديل حركة ${TYPES[m.type].label}</h2>
+    <p class="small muted" style="margin-top:-6px">${esc(mName(m))} — سجّلها ${esc(m.staffName)} بتاريخ ${dt(m.ts)}<br>نوع الحركة والمادة ما يتغيرن؛ إذا غلط احذف الحركة وسجّل وحدة جديدة.</p>
+    <div class="row">
+      <div class="field"><label>الوحدة</label><select class="in" id="e-u">${unitsOf(it).map(u => `<option ${m.unit === u ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></div>
+      <div class="field"><label>الكمية</label><input class="in" id="e-q" type="number" min="0" step="any" value="${m.qty}"></div>
+    </div>
+    <div class="row">
+      ${needFrom ? `<div class="field"><label>${m.type === 'transfer' ? 'من مكان' : 'المكان'}</label><select class="in" id="e-f">${lo(m.fromLoc)}</select></div>` : ''}
+      ${needTo ? `<div class="field"><label>${m.type === 'transfer' ? 'إلى مكان' : 'يدخل إلى'}</label><select class="in" id="e-t">${lo(m.toLoc)}</select></div>` : ''}
+    </div>
+    ${needPrice ? `<div class="row"><div class="field"><label>سعر الوحدة</label><input class="in" id="e-p" type="number" min="0" step="any" value="${m.price || ''}"></div><div class="field"><label>الوصل / المورد</label><input class="in" id="e-r" value="${esc(m.ref)}"></div></div>` : ''}
+    ${reasons ? `<div class="field"><label>السبب</label><select class="in" id="e-rs">${reasons.map(r => `<option ${m.reason === r ? 'selected' : ''}>${r}</option>`).join('')}</select></div>` : ''}
+    <div class="field"><label>ملاحظة</label><input class="in" id="e-n" value="${esc(m.note)}"></div>
+    <div class="field"><label>سبب التعديل <span class="req">*</span></label><input class="in" id="e-why" placeholder="مثلاً: الكمية انكتبت غلط"></div>
+    <div class="foot"><button class="btn" id="e-s">حفظ التعديل</button><button class="btn ghost" id="e-c">إلغاء</button></div>`,
+    (md, close) => {
+      md.querySelector('#e-c').onclick = close;
+      md.querySelector('#e-s').onclick = async () => {
+        const g = id => md.querySelector(id)?.value;
+        const unit = g('#e-u'), qty = +g('#e-q') || 0, why = g('#e-why').trim();
+        if (!(qty > 0)) return toast('اكتب الكمية', true);
+        if (!why) return toast('اكتب سبب التعديل', true);
+        const fromLoc = needFrom ? g('#e-f') : '', toLoc = needTo ? g('#e-t') : '';
+        if (m.type === 'transfer' && fromLoc === toLoc) return toast('مكان النقل لازم يختلف', true);
+        const price = needPrice ? (+g('#e-p') || 0) : 0;
+        if (needPrice && !(price > 0)) return toast('اكتب السعر', true);
+        const factor = unit === it.bigUnit ? packOf(it) : 1;
+        const after = { unit, qty: r3(qty), factor, baseQty: r3(qty * factor), price, cost: needPrice ? Math.round(price * qty) : 0, fromLoc, toLoc,
+          reason: reasons ? g('#e-rs') : (m.reason || ''), note: (g('#e-n') || '').trim(), ref: needPrice ? (g('#e-r') || '').trim() : (m.ref || '') };
+        const before = moveSnap(m);
+        const changed = Object.keys(AUD_FIELDS).filter(k => String(before[k] ?? '') !== String(after[k] ?? ''));
+        if (!changed.length) return toast('ما غيّرت شي', true);
+        const aid = B.newId();
+        await B.batch([
+          { type: 'set', col: 'audit', id: aid, data: { ts: Date.now(), action: 'edit', moveId: m.id, moveType: m.type, itemId: m.itemId, itemName: mName(m), moveTs: m.ts, moveStaff: m.staffName, by: S.user.name, byId: S.user.id, why, changed, before, after } },
+          { type: 'update', col: 'moves', id: m.id, data: { ...after, lastAuditId: aid, editCount: (m.editCount || 0) + 1, editedBy: S.user.name, editedAt: Date.now() } }
+        ]);
+        close(); toast('✔ انعدلت الحركة وانسجل التعديل');
+      };
+    });
+}
+function deleteMove(m) {
+  if (!m || !canEdit()) return;
+  modal(`<h2>حذف حركة</h2>
+    <p><b>${TYPES[m.type].label}</b> — ${esc(mName(m))} ${N(m.qty)} ${esc(m.unit)}<br><span class="small muted">سجّلها ${esc(m.staffName)} بتاريخ ${dt(m.ts)}</span></p>
+    <p class="small">الحركة تنشال من الأرصدة والسجل، وتروح لخانة «المحذوفات» باسمك.</p>
+    <div class="field"><label>سبب الحذف <span class="req">*</span></label><input class="in" id="d-why" placeholder="مثلاً: انسجلت مرتين"></div>
+    <div class="foot"><button class="btn danger" id="d-s">حذف</button><button class="btn ghost" id="d-c">إلغاء</button></div>`,
+    (md, close) => {
+      md.querySelector('#d-c').onclick = close;
+      md.querySelector('#d-s').onclick = async () => {
+        const why = md.querySelector('#d-why').value.trim();
+        if (!why) return toast('اكتب سبب الحذف', true);
+        const aid = B.newId();
+        await B.batch([
+          { type: 'set', col: 'audit', id: aid, data: { ts: Date.now(), action: 'delete', moveId: m.id, moveType: m.type, itemId: m.itemId, itemName: mName(m), moveTs: m.ts, moveStaff: m.staffName, by: S.user.name, byId: S.user.id, why, before: moveSnap(m) } },
+          { type: 'update', col: 'moves', id: m.id, data: { deleted: true, deletedBy: S.user.name, deletedAt: Date.now(), lastAuditId: aid } }
+        ]);
+        close(); toast('انحذفت الحركة وانسجلت بالمحذوفات');
+      };
+    });
+}
+function vAudit() {
+  const a = S.aud;
+  const inRange = x => x.ts >= dayStartTs(a.from) && x.ts <= dayEndTs(a.to);
+  const edits = S.audit.filter(x => x.action === 'edit' && inRange(x)).sort((p, q) => q.ts - p.ts);
+  const dels = S.audit.filter(x => x.action === 'delete' && inRange(x)).sort((p, q) => q.ts - p.ts);
+  const where = (t, b) => t === 'transfer' ? `${locName(b.fromLoc)} ← ${locName(b.toLoc)}` : locName(b.toLoc || b.fromLoc);
+  $('#view-root').innerHTML = `
+    <div class="topline"><h1>التعديلات والحذف</h1>
+      <div class="filters" style="margin:0"><label class="small">من<br><input class="in" type="date" id="a-from" value="${a.from}"></label><label class="small">إلى<br><input class="in" type="date" id="a-to" value="${a.to}"></label></div></div>
+    <div class="tabs">
+      <button data-at="edit" class="${a.tab === 'edit' ? 'on' : ''}">التعديلات (${edits.length})</button>
+      <button data-at="delete" class="${a.tab === 'delete' ? 'on' : ''}">المحذوفات (${dels.length})</button>
+    </div>
+    <div class="card"><div class="tbl-wrap">
+    ${a.tab === 'edit' ? (edits.length ? `<table>
+      <tr><th>وقت التعديل</th><th>منو عدّل</th><th>الحركة</th><th>شنو تغيّر</th><th>السبب</th><th>سجّلها أصلاً</th></tr>
+      ${edits.map(x => `<tr><td class="small">${dt(x.ts)}</td><td><b>${esc(x.by)}</b></td>
+        <td class="t-${x.moveType}"><b>${TYPES[x.moveType]?.label || ''}</b> — ${esc(x.itemName)}</td>
+        <td class="small">${(x.changed || []).map(k => `${AUD_FIELDS[k]}: <span style="text-decoration:line-through;color:var(--bad)">${esc(audVal(k, x.before?.[k]))}</span> ← <b>${esc(audVal(k, x.after?.[k]))}</b>`).join('<br>')}</td>
+        <td class="small">${esc(x.why)}</td><td class="small">${esc(x.moveStaff)}<br><span class="muted">${dt(x.moveTs)}</span></td></tr>`).join('')}
+    </table>` : '<div class="empty">ما اكو تعديلات بهذي الفترة</div>')
+    : (dels.length ? `<table>
+      <tr><th>وقت الحذف</th><th>منو حذف</th><th>الحركة المحذوفة</th><th class="num">الكمية</th><th>المكان</th><th>السبب</th><th>سجّلها أصلاً</th></tr>
+      ${dels.map(x => `<tr><td class="small">${dt(x.ts)}</td><td><b>${esc(x.by)}</b></td>
+        <td class="t-${x.moveType}"><b>${TYPES[x.moveType]?.label || ''}</b> — ${esc(x.itemName)}</td>
+        <td class="num">${N(x.before?.qty)} ${esc(x.before?.unit)}</td><td class="small">${esc(where(x.moveType, x.before || {}))}</td>
+        <td class="small">${esc(x.why)}</td><td class="small">${esc(x.moveStaff)}<br><span class="muted">${dt(x.moveTs)}</span></td></tr>`).join('')}
+    </table>` : '<div class="empty">ما اكو محذوفات بهذي الفترة</div>')}
+    </div></div>`;
+  document.querySelectorAll('[data-at]').forEach(b => b.onclick = () => { S.aud.tab = b.dataset.at; vAudit(); });
+  $('#a-from').onchange = e => { S.aud.from = e.target.value; vAudit(); };
+  $('#a-to').onchange = e => { S.aud.to = e.target.value; vAudit(); };
 }
 
 /* ═════════════ Stocktake ═════════════ */
@@ -695,10 +852,11 @@ function vAdmin() {
       <button data-tab="items" class="${tab === 'items' ? 'on' : ''}">المواد</button>
       <button data-tab="locations" class="${tab === 'locations' ? 'on' : ''}">أماكن الخزن</button>
       <button data-tab="staff" class="${tab === 'staff' ? 'on' : ''}">الموظفين</button>
+      <button data-tab="system" class="${tab === 'system' ? 'on' : ''}">النظام</button>
     </div>
     <div class="card" id="adm"></div>`;
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.adminTab = b.dataset.tab; vAdmin(); });
-  ({ items: admItems, locations: admLocs, staff: admStaff })[tab]();
+  ({ items: admItems, locations: admLocs, staff: admStaff, system: admSystem })[tab]();
 }
 const used = (field, id) => S.moves.some(m => m[field] === id);
 function admItems() {
@@ -737,7 +895,7 @@ function itemForm(it) {
         if (bigUnit && !(pack > 1)) return toast('اكتب التعبئة (أكبر من 1) للوحدة الكبيرة', true);
         if (bigUnit && bigUnit === baseUnit) return toast('الوحدة الكبيرة لازم تختلف عن الأساسية', true);
         const doc = { name, baseUnit, bigUnit, pack: bigUnit ? pack : 0, minQty };
-        if (it) { await B.update('items', it.id, doc); if (it.name !== name) for (const mv of S.moves.filter(x => x.itemId === it.id)) await B.update('moves', mv.id, { itemName: name }); }
+        if (it) await B.update('items', it.id, doc);
         else await B.add('items', { ...doc, active: true, created: Date.now() });
         close(); toast('✔ انحفظت المادة');
       };
@@ -793,7 +951,7 @@ function admStaff() {
   $('#adm').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="muted small">الموظف يسجل حركات ويشوف الأرصدة. المدير يقدر يجرد ويشوف التقارير والكلف ويحذف حركات.</span><button class="btn sm" id="ad-new">+ موظف</button></div>
     <div class="tbl-wrap"><table><tr><th>الاسم</th><th>الصلاحية</th><th class="num">حركاته</th><th></th></tr>
-    ${list.map(s => `<tr style="${s.active === false ? 'opacity:.5' : ''}"><td><b>${esc(s.name)}</b>${s.active === false ? ' <span class="badge b-muted">موقوف</span>' : ''}</td><td>${s.role === 'admin' ? '<span class="badge b-ok">مدير</span>' : 'موظف'}</td><td class="num">${S.moves.filter(m => m.staffId === s.id).length}</td><td><button class="link" data-ed="${s.id}">تعديل</button></td></tr>`).join('')}
+    ${list.map(s => `<tr style="${s.active === false ? 'opacity:.5' : ''}"><td><b>${esc(s.name)}</b>${s.active === false ? ' <span class="badge b-muted">موقوف</span>' : ''}</td><td>${s.role === 'admin' ? '<span class="badge b-ok">مدير</span>' : 'موظف'}${s.role !== 'admin' && s.canEdit ? ' <span class="badge b-warn">يعدّل ويحذف</span>' : ''}</td><td class="num">${S.moves.filter(m => m.staffId === s.id).length}</td><td><button class="link" data-ed="${s.id}">تعديل</button></td></tr>`).join('')}
     </table></div>`;
   $('#ad-new').onclick = () => staffForm();
   document.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => staffForm(S.staff.find(s => s.id === b.dataset.ed)));
@@ -806,6 +964,7 @@ function staffForm(s) {
       <div class="field"><label>${s ? 'رمز جديد (اتركه فارغ إذا ما تغيّره)' : 'الرمز السري'} ${s ? '' : '<span class="req">*</span>'}</label><input class="in pin" id="s-p" inputmode="numeric" maxlength="6" type="password"></div>
       <div class="field"><label>الصلاحية</label><select class="in" id="s-r"><option value="staff">موظف</option><option value="admin" ${s?.role === 'admin' ? 'selected' : ''}>مدير</option></select></div>
     </div>
+    <label class="field" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="s-e" ${s?.canEdit ? 'checked' : ''}> يسمح له بتعديل وحذف الحركات <span class="small muted">(المدير مسموح دائماً)</span></label>
     <div class="foot"><button class="btn" id="s-s">حفظ</button><button class="btn ghost" id="s-c">إلغاء</button>
     ${s && s.id !== S.user.id ? `<button class="btn ghost" id="s-x" style="margin-right:auto">${s.active === false ? 'إعادة تفعيل' : 'إيقاف'}</button>` : ''}</div>`,
     (m, close) => {
@@ -817,7 +976,7 @@ function staffForm(s) {
         if ((!s || pin) && !/^\d{4,6}$/.test(pin)) return toast('الرمز من 4 إلى 6 أرقام', true);
         if (s && s.role === 'admin' && role !== 'admin' && admins.length <= 1) return toast('لازم يبقى مدير واحد على الأقل', true);
         if (s && s.name !== name && !pin) return toast('عند تغيير الاسم اكتب رمز جديد', true);
-        const doc = { name, role };
+        const doc = { name, role, canEdit: m.querySelector('#s-e').checked };
         if (pin) doc.pinHash = await hashPin(name, pin);
         if (s) await B.update('staff', s.id, doc); else await B.add('staff', { ...doc, active: true, created: Date.now() });
         close(); toast('✔ انحفظ');
@@ -829,6 +988,30 @@ function staffForm(s) {
         close(); toast('✔ تم');
       };
     });
+}
+
+function admSystem() {
+  const last = localStorage.getItem('inv_last_backup');
+  $('#adm').innerHTML = `
+    <h2>النسخة الاحتياطية</h2>
+    <p class="small muted">ينزّل ملف بيه كل البيانات (المواد، الأماكن، الموظفين، كل الحركات، الجرودات). احتفظ بيه بمكان آمن. يُنصح كل أسبوع أو كل شهر.</p>
+    <p class="small">آخر نسخة من هذا الجهاز: <b>${last ? dt(+last) : 'ما اكو'}</b></p>
+    <button class="btn" id="bk">تنزيل نسخة احتياطية</button>
+    <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
+    <h2>هذا الجهاز</h2>
+    <p class="small muted">إلغاء التفعيل يخلي هذا الجهاز يحتاج كلمة سر المطعم مرة ثانية. استخدمه إذا الجهاز راح يطلع من المطعم أو ضاع.</p>
+    ${B.mode === 'firebase' ? '<button class="btn danger" id="dv-out">إلغاء تفعيل هذا الجهاز</button>' : '<span class="mode">وضع تجربة</span>'}`;
+  $('#bk').onclick = () => {
+    const data = { exportedAt: new Date().toISOString(), title: CONFIG.title, items: S.items, locations: S.locations, staff: S.staff.map(({ pinHash, ...x }) => x), moves: S.allMoves, stocktakes: S.stocktakes, audit: S.audit };
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
+    a.download = `نسخة_احتياطية_${today()}.json`; a.click();
+    localStorage.setItem('inv_last_backup', Date.now()); setTimeout(admSystem, 300);
+  };
+  if ($('#dv-out')) $('#dv-out').onclick = async () => {
+    if (!(await confirmBox('إلغاء تفعيل هذا الجهاز؟ راح يحتاج كلمة سر المطعم حتى يشتغل مرة ثانية.', 'إلغاء التفعيل', true))) return;
+    localStorage.removeItem('inv_session'); await B.signOut(); location.reload();
+  };
 }
 
 boot();

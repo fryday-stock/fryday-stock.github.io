@@ -5,7 +5,10 @@
 //    إذا تركتها فارغة يشتغل الموقع "وضع تجربة" والبيانات تنحفظ على هذا الجهاز فقط.
 
 export const CONFIG = {
-  title: "مخزن المطعم",
+  title: "مخزن فرايدي",
+
+  // إيميل حساب المطعم اللي تسويه بـ Firebase ← Authentication ← Users
+  deviceEmail: "device@fryday.iq",
 
   firebase: {
     apiKey: "AIzaSyAMEfS_rfcEfGFa_oMX-y7Wk_FVeJTuEXI",
