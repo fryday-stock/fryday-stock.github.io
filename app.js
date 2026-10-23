@@ -571,8 +571,19 @@ function vStock() {
   document.querySelectorAll('[data-l]').forEach(b => b.onclick = () => { S.stockLoc = b.dataset.l; vStock(); });
   $('#sk-g').onchange = e => { S.stockGroup = e.target.value; vStock(); };
   $('#sk-q').oninput = e => { S.stockQ = e.target.value; const p = e.target.selectionStart; vStock(); const n = $('#sk-q'); n.focus(); n.setSelectionRange(p, p); };
-  $('#sk-csv').onclick = () => csvDownload(`أرصدة_${L === 'all' ? 'الكل' : locName(L)}_${today()}.csv`,
-    [['المجموعة', 'المادة', 'الرصيد', 'الوحدة', 'مفصّل', 'متوسط الكلفة', 'القيمة'], ...rows.map(r => [r.g, r.it.name, r3(r.qty), r.it.baseUnit, detailed(r.it, r.qty, true), Math.round(avg.get(r.it.id) || 0), Math.round(r.val)])]);
+  $('#sk-csv').onclick = () => {
+    const adm = isAdmin(), out = []; let lg = null;
+    for (const r of rows) {
+      if (r.g !== lg) { lg = r.g; out.push({ group: r.g }); }
+      const row = [r.it.name, r3(r.qty), r.it.baseUnit, detailed(r.it, r.qty, true)];
+      if (adm) row.push(Math.round(avg.get(r.it.id) || 0), Math.round(r.val));
+      out.push(row);
+    }
+    exportSheet({ file: `أرصدة_${L === 'all' ? 'كل_المخازن' : locName(L)}_${today()}.xlsx`, title: `${CONFIG.title} — الأرصدة`,
+      sub: [`المخزن: ${L === 'all' ? 'كل المخازن' : locName(L)}`, G ? `المجموعة: ${G}` : '', S.stockQ.trim() ? `البحث: ${S.stockQ.trim()}` : '', `بتاريخ: ${dt(Date.now())}`].filter(Boolean).join('   |   '),
+      headers: ['المادة', 'الرصيد', 'الوحدة', 'مفصّل', ...(adm ? ['متوسط الكلفة (د.ع)', 'القيمة (د.ع)'] : [])],
+      rows: out, qty: [1], money: adm ? [4, 5] : [], totals: adm ? { label: 'المجموع', cols: [5] } : null });
+  };
 }
 
 /* ═════════════ Log ═════════════ */
@@ -620,9 +631,13 @@ function vLog() {
   on('#f-from', 'from'); on('#f-to', 'to'); on('#f-type', 'type'); on('#f-staff', 'staff'); on('#f-q', 'q');
   document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => editMove(S.moves.find(x => x.id === b.dataset.edit)));
   document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => deleteMove(S.moves.find(x => x.id === b.dataset.del)));
-  $('#lg-csv').onclick = () => csvDownload(`سجل_الحركات_${f.from}_${f.to}.csv`,
-    [['التاريخ', 'النوع', 'المادة', 'الكمية', 'الوحدة', 'الكمية بالأساسية', 'الوحدة الأساسية', 'من', 'إلى', 'سعر الوحدة', 'الكلفة', 'السبب', 'الوصل', 'ملاحظة', 'الموظف'],
-      ...list.map(m => [dt(m.ts), TYPES[m.type]?.label, mName(m), m.qty, m.unit, m.baseQty, m.baseUnit, m.fromLoc ? locName(m.fromLoc) : '', m.toLoc ? locName(m.toLoc) : '', m.price || '', m.cost || '', m.reason, m.ref, m.note, m.staffName])]);
+  $('#lg-csv').onclick = () => {
+    const adm = isAdmin();
+    exportSheet({ file: `سجل_الحركات_${f.from}_${f.to}.xlsx`, title: `${CONFIG.title} — سجل الحركات`, sub: `من ${f.from} إلى ${f.to}   |   ${list.length} حركة`,
+      headers: ['التاريخ', 'النوع', 'المادة', 'الكمية', 'الوحدة', 'بالوحدة الأساسية', 'الوحدة الأساسية', 'من', 'إلى', ...(adm ? ['سعر الوحدة', 'الكلفة'] : []), 'السبب', 'الوصل', 'ملاحظة', 'الموظف'],
+      rows: list.map(m => [dt(m.ts), TYPES[m.type]?.label, mName(m), m.qty, m.unit, m.baseQty, m.baseUnit, m.fromLoc ? locName(m.fromLoc) : '', m.toLoc ? locName(m.toLoc) : '', ...(adm ? [m.price || '', m.cost || ''] : []), m.reason, m.ref, m.note, m.staffName]),
+      qty: [3, 5], money: adm ? [9, 10] : [], totals: adm ? { label: 'المجموع', cols: [10] } : null });
+  };
 }
 
 /* ═════════════ Edit / delete with audit trail ═════════════ */
@@ -871,9 +886,10 @@ function vReports() {
     </table>` : `<div class="empty">ما اكو حركات بهذا الشهر</div>`}</div>
     <p class="hint">النقل بين الأماكن ما يأثر على التقرير لأن المادة باقية بالمخزن. متوسط الكلفة = كل كلفة المشتريات ÷ كل الكميات الواردة.</p></div>`;
   $('#rp-m').onchange = e => { S.rep.month = e.target.value || today().slice(0, 7); vReports(); };
-  $('#rp-csv').onclick = () => csvDownload(`تقرير_${S.rep.month}.csv`,
-    [['المادة', 'الوحدة', 'أول المدة', 'الوارد', 'المصروف', 'التالف', 'المرتجع', 'تسوية الجرد', 'آخر المدة', 'متوسط الكلفة', 'كلفة المصروف', 'كلفة التالف'],
-      ...rows.map(r => [r.it.name, r.it.baseUnit, r3(r.open), r3(r.in), r3(r.out), r3(r.waste), r3(r.return), r3(r.adjust), r3(r.close), Math.round(r.avg), Math.round(r.out * r.avg), Math.round(r.waste * r.avg)])]);
+  $('#rp-csv').onclick = () => exportSheet({ file: `تقرير_المخزن_${S.rep.month}.xlsx`, title: `${CONFIG.title} — التقرير الشهري`, sub: `شهر ${S.rep.month}   |   المشتريات: ${money(purchases)}   |   كلفة المصروف: ${money(consumption)}   |   التالف: ${money(waste)}   |   فروقات الجرد: ${money(adj)}`,
+    headers: ['المادة', 'الوحدة', 'أول المدة', 'الوارد', 'المصروف', 'التالف', 'المرتجع', 'تسوية الجرد', 'آخر المدة', 'متوسط الكلفة', 'كلفة المصروف', 'كلفة التالف', 'قيمة آخر المدة'],
+    rows: rows.map(r => [r.it.name, r.it.baseUnit, r3(r.open), r3(r.in), r3(r.out), r3(r.waste), r3(r.return), r3(r.adjust), r3(r.close), Math.round(r.avg), Math.round(r.out * r.avg), Math.round(r.waste * r.avg), Math.round(Math.max(r.close, 0) * r.avg)]),
+    qty: [2, 3, 4, 5, 6, 7, 8], money: [9, 10, 11, 12], totals: { label: 'المجموع', cols: [10, 11, 12] } });
 }
 
 /* ═════════════ Admin ═════════════ */
@@ -1025,6 +1041,57 @@ function staffForm(s) {
         close(); toast('✔ تم');
       };
     });
+}
+
+/* ═════════════ Formatted Excel export ═════════════ */
+async function exportSheet(o) {
+  let X;
+  try { X = await loadXLSX(); } catch { return csvDownload(o.file.replace(/\.xlsx$/, '.csv'), [o.headers, ...o.rows.filter(Array.isArray)]); }
+  const nC = o.headers.length, enc = X.utils.encode_cell;
+  const line = { style: 'thin', color: { rgb: 'C9D6E3' } }, border = { top: line, bottom: line, left: line, right: line };
+  const font = (x = {}) => ({ name: 'Arial', sz: 11, ...x });
+  const aoa = [[o.title], [o.sub || ''], [], o.headers];
+  const kinds = ['title', 'sub', 'blank', 'head'];
+  for (const r of o.rows) {
+    if (Array.isArray(r)) { aoa.push(r.map(v => v ?? '')); kinds.push('row'); }
+    else { aoa.push([`📁 ${r.group}`, ...Array(nC - 1).fill('')]); kinds.push('group'); }
+  }
+  const first = 4, last = aoa.length - 1;
+  if (o.totals) { const t = Array(nC).fill(''); t[0] = o.totals.label; aoa.push(t); kinds.push('total'); }
+  const ws = X.utils.aoa_to_sheet(aoa);
+  const merges = [{ s: { r: 0, c: 0 }, e: { r: 0, c: nC - 1 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: nC - 1 } }];
+  kinds.forEach((k, r) => { if (k === 'group') merges.push({ s: { r, c: 0 }, e: { r, c: nC - 1 } }); });
+  ws['!merges'] = merges;
+  const qty = new Set(o.qty || []), mon = new Set(o.money || []);
+  kinds.forEach((k, r) => {
+    for (let c = 0; c < nC; c++) {
+      const a = enc({ r, c });
+      if (!ws[a]) ws[a] = { t: 's', v: '' };
+      const cell = ws[a];
+      const al = { vertical: 'center', horizontal: (qty.has(c) || mon.has(c)) ? 'center' : 'right', readingOrder: 2, wrapText: k === 'sub' };
+      if (k === 'title') cell.s = { font: font({ sz: 16, bold: true, color: { rgb: '0B3D6E' } }), alignment: { horizontal: 'right', readingOrder: 2 } };
+      else if (k === 'sub') cell.s = { font: font({ sz: 10, color: { rgb: '5B6B7A' } }), alignment: { horizontal: 'right', readingOrder: 2 } };
+      else if (k === 'head') cell.s = { font: font({ bold: true, color: { rgb: 'FFFFFF' } }), fill: { fgColor: { rgb: '0B3D6E' } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true, readingOrder: 2 }, border };
+      else if (k === 'group') cell.s = { font: font({ bold: true, color: { rgb: '0B3D6E' } }), fill: { fgColor: { rgb: 'E7F1FB' } }, alignment: { horizontal: 'right', readingOrder: 2 }, border };
+      else if (k === 'row') {
+        cell.s = { font: font(), alignment: al, border, ...(r % 2 ? {} : { fill: { fgColor: { rgb: 'F7FAFD' } } }) };
+        if (cell.t === 'n') cell.z = mon.has(c) ? '#,##0' : '#,##0.###';
+      } else if (k === 'total') {
+        if (o.totals.cols.includes(c)) { const col = X.utils.encode_col(c); ws[a] = { t: 'n', f: `SUM(${col}${first + 1}:${col}${last + 1})`, z: '#,##0' }; }
+        ws[a].s = { font: font({ bold: true, color: { rgb: '0B3D6E' } }), fill: { fgColor: { rgb: 'FFF2B3' } }, alignment: { ...al, horizontal: o.totals.cols.includes(c) ? 'center' : 'right' }, border: { ...border, top: { style: 'medium', color: { rgb: 'F5D312' } } } };
+      }
+    }
+  });
+  ws['!cols'] = o.headers.map((h, c) => {
+    let w = String(h).length;
+    aoa.slice(4).forEach((row, i) => { if (kinds[i + 4] === 'row') w = Math.max(w, String(row[c] ?? '').length); });
+    return { wch: Math.min(Math.max(w + 3, 9), 40) };
+  });
+  ws['!rows'] = [{ hpt: 26 }, { hpt: 18 }, { hpt: 6 }, { hpt: 30 }];
+  const wb = X.utils.book_new();
+  wb.Workbook = { Views: [{ RTL: true }] };
+  X.utils.book_append_sheet(wb, ws, 'البيانات');
+  X.writeFile(wb, o.file);
 }
 
 /* ═════════════ Import from Excel ═════════════ */
