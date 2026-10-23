@@ -1,6 +1,6 @@
 /* ═════ FryDay Stock — design tokens ═════
    ألوان فرايدي: أزرق (navy/blue) + أصفر. أسلوب بسيط وعملي مناسب للتابلت والموبايل بالمطعم.
-   الأيقونات SVG بآخر الملف (تحل محل الإيموجي بالقوائم وأزرار الحركات). */
+   الأيقونات SVG تجي من ico() بـ app.js وتنسيقها بآخر الملف. */
 :root{
   --navy-900:#072746; --navy:#0b3d6e; --blue-700:#0e5fa8; --blue:#1a85d6; --blue-50:#eaf3fc; --blue-100:#d4e7f9;
   --yellow:#f5d312; --yellow-600:#d9b800; --yellow-50:#fff8d1; --flame:#f26b1d;
@@ -128,11 +128,11 @@ select.in:disabled{background-color:#eef2f6}
 .hint{font-size:13px;color:var(--muted);margin-top:6px}
 .hint.bad{color:var(--bad);font-weight:700}
 .hint.ok{color:var(--ok);font-weight:700}
-.seg{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;margin-bottom:20px}
+.seg{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin-bottom:20px}
 .seg button{min-height:var(--tap);border:1.5px solid var(--line-2);background:#fff;border-radius:var(--r-sm);padding:8px 10px;font-size:15px;font-weight:700;color:var(--ink-2);transition:all var(--t)}
 .seg button:hover{border-color:var(--blue)}
 .seg button.on{background:var(--navy);border-color:var(--navy);color:#fff;box-shadow:inset 0 -4px 0 var(--yellow)}
-@media (max-width:600px){.seg{grid-template-columns:repeat(3,minmax(0,1fr))}.seg button{font-size:13px;padding:6px 4px}}
+@media (max-width:600px){.seg{grid-template-columns:repeat(3,minmax(0,1fr))}.seg button{font-size:13px;padding:6px 4px;gap:4px;flex-direction:column;line-height:1.3}}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
 .chips button{min-height:40px;border:1.5px solid var(--line-2);background:#fff;border-radius:99px;padding:6px 16px;font-size:14px;font-weight:700;color:var(--ink-2);transition:all var(--t)}
 .chips button:hover{border-color:var(--blue)}
@@ -220,23 +220,18 @@ tr.grp:hover td{background:var(--yellow-50)}
 .sumbar b{font-size:17px}
 .sumbar>span:last-child b{color:var(--yellow)}
 
-/* ═════ SVG icons (replace emoji in nav + action tiles) ═════ */
-.nav .ic,.bottom .ic,.act .ic{display:inline-grid;place-items:center;flex:none;font-size:0;line-height:0}
+/* ═════ SVG icons (inline from app.js ico()) ═════ */
+svg.i{width:1.15em;height:1.15em;flex:none;vertical-align:-.2em}
+.nav .ic,.bottom .ic,.act .ic{display:inline-grid;place-items:center;flex:none}
 .nav .ic{width:24px;height:24px}
-.nav .ic::before,.bottom .ic::before,.act .ic::before{content:"";width:22px;height:22px;background:currentColor;-webkit-mask:var(--i) center/contain no-repeat;mask:var(--i) center/contain no-repeat}
-@media (min-width:701px) and (max-width:1100px){.nav .ic::before{width:24px;height:24px}}
-[data-go="home"] .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 10.5 12 3l9 7.5'/%3E%3Cpath d='M5 9.5V21h14V9.5'/%3E%3Cpath d='M10 21v-6h4v6'/%3E%3C/svg%3E")}
-[data-go="move"] .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 8v8M8 12h8'/%3E%3C/svg%3E")}
-[data-go="stock"] .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M21 8 12 3 3 8v8l9 5 9-5z'/%3E%3Cpath d='m3 8 9 5 9-5M12 13v8'/%3E%3C/svg%3E")}
-[data-go="log"] .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3h12v18l-3-2-3 2-3-2-3 2z'/%3E%3Cpath d='M9 8h6M9 12h6M9 16h3'/%3E%3C/svg%3E")}
-[data-go="stocktake"] .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='5' y='4' width='14' height='17' rx='2'/%3E%3Cpath d='M9 4V2.5h6V4'/%3E%3Cpath d='m9 13 2 2 4-4'/%3E%3C/svg%3E")}
-[data-go="reports"] .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h16'/%3E%3Cpath d='M7 16v-5M12 16V6M17 16v-8'/%3E%3C/svg%3E")}
-[data-go="audit"] .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12a9 9 0 1 0 3-6.7L3 8'/%3E%3Cpath d='M3 3v5h5'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E")}
-[data-go="admin"] .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1'/%3E%3Ccircle cx='15' cy='6' r='2'/%3E%3Ccircle cx='9' cy='12' r='2'/%3E%3Ccircle cx='17' cy='18' r='2'/%3E%3C/svg%3E")}
-.act.in .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 3v12'/%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3Cpath d='M4 21h16'/%3E%3C/svg%3E")}
-.act.out .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 15V3'/%3E%3Cpath d='m7 8 5-5 5 5'/%3E%3Cpath d='M4 21h16'/%3E%3C/svg%3E")}
-.act.transfer .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8h15l-4-4'/%3E%3Cpath d='M20 16H5l4 4'/%3E%3C/svg%3E")}
-.act.waste .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 7h16'/%3E%3Cpath d='M9 7V4h6v3'/%3E%3Cpath d='m6 7 1 14h10l1-14'/%3E%3Cpath d='M10 11v6M14 11v6'/%3E%3C/svg%3E")}
-.act.return .ic{--i:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 14 4 9l5-5'/%3E%3Cpath d='M4 9h11a5 5 0 0 1 0 10h-3'/%3E%3C/svg%3E")}
+.nav .ic svg.i,.bottom .ic svg.i{width:22px;height:22px}
+@media (min-width:701px) and (max-width:1100px){.nav .ic svg.i{width:24px;height:24px}}
+.act .ic svg.i{width:26px;height:26px}
+.seg button{display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.seg button svg.i{width:20px;height:20px}
+b.tl{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+tr.grp svg.i,.side .me svg.i{opacity:.8;margin-inline-end:2px}
+.empty svg.i{color:var(--ok);width:1.3em;height:1.3em}
+#sk-q{padding-right:42px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%235f6f82' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat right 14px center}
 
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}

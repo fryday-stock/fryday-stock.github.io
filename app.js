@@ -69,13 +69,13 @@ async function firebaseBackend(cfg) {
 
 /* ═════════════ Constants ═════════════ */
 const TYPES = {
-  in:       { label: 'وارد',          ic: '📥', sign: 'to' },
-  out:      { label: 'صرف / سحب',     ic: '📤', sign: 'from' },
-  transfer: { label: 'نقل',           ic: '🔁', sign: 'both' },
-  waste:    { label: 'تالف',          ic: '🗑️', sign: 'from' },
-  return:   { label: 'مرتجع للمورد',  ic: '↩️', sign: 'from' },
-  opening:  { label: 'رصيد افتتاحي',  ic: '🏁', sign: 'to' },
-  adjust:   { label: 'تسوية جرد',     ic: '⚖️', sign: 'adj' }
+  in:       { label: 'وارد',          ic: 'in', sign: 'to' },
+  out:      { label: 'صرف / سحب',     ic: 'out', sign: 'from' },
+  transfer: { label: 'نقل',           ic: 'transfer', sign: 'both' },
+  waste:    { label: 'تالف',          ic: 'waste', sign: 'from' },
+  return:   { label: 'مرتجع للمورد',  ic: 'return', sign: 'from' },
+  opening:  { label: 'رصيد افتتاحي',  ic: 'opening', sign: 'to' },
+  adjust:   { label: 'تسوية جرد',     ic: 'adjust', sign: 'adj' }
 };
 const OUT_REASONS = ['صرف للمطبخ', 'صرف للصالة / البار', 'ضيافة', 'استخدام شخصي (موظفين)', 'أخرى'];
 const WASTE_REASONS = ['منتهي الصلاحية', 'تلف / خراب', 'سقوط / كسر', 'خطأ تحضير', 'أخرى'];
@@ -120,6 +120,29 @@ const activeItems = () => S.items.filter(i => i.active !== false).sort((a, b) =>
 const activeLocs = () => S.locations.filter(l => l.active !== false).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.name.localeCompare(b.name, 'ar'));
 const packOf = it => (it?.bigUnit && +it.pack > 0) ? +it.pack : 1;
 const unitsOf = it => it ? [it.baseUnit, ...(it.bigUnit && +it.pack > 0 ? [it.bigUnit] : [])] : [];
+
+/* أيقونات SVG للعرض فقط (بدل الإيموجي) */
+const ICONS = {
+  home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',
+  move: '<circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/>',
+  stock: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/>',
+  log: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
+  stocktake: '<rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2.5h6V4"/><path d="m9 13 2 2 4-4"/>',
+  reports: '<path d="M4 20h16"/><path d="M7 16v-5M12 16V6M17 16v-8"/>',
+  audit: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>',
+  admin: '<path d="M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1"/><circle cx="15" cy="6" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="17" cy="18" r="2"/>',
+  in: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 21h16"/>',
+  out: '<path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M4 21h16"/>',
+  transfer: '<path d="M4 8h15l-4-4"/><path d="M20 16H5l4 4"/>',
+  waste: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 14h10l1-14"/><path d="M10 11v6M14 11v6"/>',
+  return: '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
+  opening: '<path d="M5 21V4"/><path d="M5 4h12l-2 4 2 4H5"/>',
+  adjust: '<path d="M12 3v18M7 21h10"/><path d="M4 7h16"/><path d="m4 7-2.5 6a3 3 0 0 0 5 0z"/><path d="m20 7-2.5 6a3 3 0 0 0 5 0z"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  folder: '<path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>'
+};
+const ico = k => ICONS[k] ? `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg>` : '';
 
 function toast(msg, bad = false) {
   const t = $('#toast'); t.textContent = msg; t.className = 'show' + (bad ? ' bad' : '');
@@ -260,14 +283,14 @@ function onData() {
 
 /* ═════════════ Render root ═════════════ */
 const NAV = [
-  ['home', '🏠', 'الرئيسية'],
-  ['move', '➕', 'حركة جديدة'],
-  ['stock', '📦', 'الأرصدة'],
-  ['log', '🧾', 'السجل'],
-  ['stocktake', '⚖️', 'الجرد', true],
-  ['reports', '📊', 'التقارير', true],
-  ['audit', '🕵️', 'التعديلات والحذف', true],
-  ['admin', '⚙️', 'الإدارة', true]
+  ['home', 'home', 'الرئيسية'],
+  ['move', 'move', 'حركة جديدة'],
+  ['stock', 'stock', 'الأرصدة'],
+  ['log', 'log', 'السجل'],
+  ['stocktake', 'stocktake', 'الجرد', true],
+  ['reports', 'reports', 'التقارير', true],
+  ['audit', 'audit', 'التعديلات والحذف', true],
+  ['admin', 'admin', 'الإدارة', true]
 ];
 function render() {
   if (!S.staff.length) return renderSetup();
@@ -279,12 +302,12 @@ function render() {
   <div class="shell">
     <aside class="side">
       <div class="brand"><img class="logo" src="logo.png" alt=""><div>${esc(CONFIG.title)}<small>نظام المخزن</small></div></div>
-      ${nav.map(n => `<button class="nav ${S.view === n[0] ? 'on' : ''}" data-go="${n[0]}"><span class="ic">${n[1]}</span>${n[2]}</button>`).join('')}
-      <div class="me">👤 ${esc(S.user.name)} <span class="small">(${S.user.role === 'admin' ? 'مدير' : 'موظف'})</span><br><button class="btn ghost sm" id="lo">تسجيل خروج</button></div>
+      ${nav.map(n => `<button class="nav ${S.view === n[0] ? 'on' : ''}" data-go="${n[0]}"><span class="ic">${ico(n[1])}</span>${n[2]}</button>`).join('')}
+      <div class="me">${ico('user')} ${esc(S.user.name)} <span class="small">(${S.user.role === 'admin' ? 'مدير' : 'موظف'})</span><br><button class="btn ghost sm" id="lo">تسجيل خروج</button></div>
     </aside>
     <main class="main" id="view-root"></main>
   </div>
-  <nav class="bottom">${nav.map(n => `<button class="${S.view === n[0] ? 'on' : ''}" data-go="${n[0]}"><span class="ic">${n[1]}</span>${n[2]}</button>`).join('')}</nav>`;
+  <nav class="bottom">${nav.map(n => `<button class="${S.view === n[0] ? 'on' : ''}" data-go="${n[0]}"><span class="ic">${ico(n[1])}</span>${n[2]}</button>`).join('')}</nav>`;
   document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
   const lo = () => { S.user = null; localStorage.removeItem('inv_session'); render(); };
   $('#lo').onclick = lo; $('#lo2').onclick = lo;
@@ -356,7 +379,7 @@ function vHome() {
   $('#view-root').innerHTML = `
     <div class="topline"><h1>الرئيسية</h1>${modeTag()}</div>
     <div class="actions">
-      ${['in', 'out', 'transfer', 'waste', 'return'].map(t => `<button class="act ${t}" data-t="${t}"><span class="ic">${TYPES[t].ic}</span>${TYPES[t].label}</button>`).join('')}
+      ${['in', 'out', 'transfer', 'waste', 'return'].map(t => `<button class="act ${t}" data-t="${t}"><span class="ic">${ico(TYPES[t].ic)}</span>${TYPES[t].label}</button>`).join('')}
     </div>
     <div class="kpis">
       <div class="kpi"><div class="l">عدد المواد</div><div class="v">${items.length}</div></div>
@@ -372,7 +395,7 @@ function vHome() {
       <div class="card"><h2>تحتاج طلب</h2>
         ${low.length ? `<div class="tbl-wrap"><table><tr><th>المادة</th><th class="num">الرصيد</th><th>الحالة</th></tr>
           ${low.slice(0, 15).map(it => { const q = tot.get(it.id) || 0, st = status(it, q); return `<tr><td>${esc(it.name)}</td><td class="num">${N(q)} ${esc(it.baseUnit)}</td><td><span class="badge ${st[1]}">${st[0]}</span></td></tr>`; }).join('')}
-        </table></div>` : `<div class="empty">كل المواد كافية ✔</div>`}
+        </table></div>` : `<div class="empty">${ico('check')} كل المواد كافية</div>`}
       </div>
     </div>
     <div class="card"><h2>آخر الحركات</h2>${movesTable(S.moves.slice(-8).reverse(), false)}</div>`;
@@ -399,7 +422,7 @@ function vMove() {
   $('#view-root').innerHTML = `
     <div class="topline"><h1>حركة جديدة</h1>${modeTag()}</div>
     <div class="card">
-      <div class="seg">${types.map(t => `<button data-type="${t}" class="${mv.type === t ? 'on' : ''}">${TYPES[t].ic} ${TYPES[t].label}</button>`).join('')}</div>
+      <div class="seg">${types.map(t => `<button data-type="${t}" class="${mv.type === t ? 'on' : ''}">${ico(TYPES[t].ic)}${TYPES[t].label}</button>`).join('')}</div>
       <div class="field"><label>المادة <span class="req">*</span></label>
         ${it ? `<div class="sel-item"><span>${esc(it.name)} <span class="muted small">(${esc(unitsOf(it).join(' / '))})</span></span><button class="link" id="mv-clear">تغيير</button></div>`
              : `<div class="picker"><input class="in" id="mv-q" placeholder="اكتب اسم المادة…" autocomplete="off" value="${esc(mv.q)}"><div class="list" id="mv-list" hidden></div></div>`}
@@ -543,7 +566,7 @@ function vStock() {
   for (const r of rows) {
     if (r.g !== lastG) {
       lastG = r.g; const gr = rows.filter(x => x.g === r.g);
-      body += `<tr class="grp"><td colspan="${cols}"><b>📁 ${esc(r.g)}</b> <span class="small muted">— ${gr.length} مادة${isAdmin() ? ` — القيمة ${M(gr.reduce((a, x) => a + x.val, 0))} د.ع` : ''}</span></td></tr>`;
+      body += `<tr class="grp"><td colspan="${cols}"><b>${ico('folder')} ${esc(r.g)}</b> <span class="small muted">— ${gr.length} مادة${isAdmin() ? ` — القيمة ${M(gr.reduce((a, x) => a + x.val, 0))} د.ع` : ''}</span></td></tr>`;
     }
     const { it, qty } = r;
     const st = L === 'all' ? status(it, qty) : (qty < -0.0005 ? ['رصيد سالب', 'b-bad'] : Math.abs(qty) < 0.0005 ? ['فارغ', 'b-muted'] : ['متوفر', 'b-ok']);
@@ -555,7 +578,7 @@ function vStock() {
   $('#view-root').innerHTML = `
     <div class="topline"><h1>الأرصدة</h1><button class="btn ghost sm" id="sk-csv">تصدير</button></div>
     <div class="filters">
-      <input class="in" id="sk-q" placeholder="🔍 بحث باسم المادة أو المجموعة…" value="${esc(S.stockQ)}" style="flex:1;min-width:220px">
+      <input class="in" id="sk-q" placeholder="بحث باسم المادة أو المجموعة…" value="${esc(S.stockQ)}" style="flex:1;min-width:220px">
       <select class="in" id="sk-g"><option value="">كل المجموعات</option>${groups.map(g => `<option ${G === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
     </div>
     <div class="chips"><button data-l="all" class="${L === 'all' ? 'on' : ''}">كل الأماكن</button>${locs.map(l => `<button data-l="${l.id}" class="${L === l.id ? 'on' : ''}">${esc(l.name)}</button>`).join('')}</div>
@@ -598,7 +621,7 @@ function movesTable(list, withDelete) {
     <tr><th>الوقت</th><th>النوع</th><th>المادة</th><th class="num">الكمية</th><th>المكان</th><th>السبب / ملاحظة</th><th>الموظف</th>${isAdmin() ? '<th class="num">الكلفة</th>' : ''}${withDelete ? '<th></th>' : ''}</tr>
     ${list.map(m => `<tr ${m.deleted ? 'style="opacity:.55;text-decoration:line-through"' : ''}>
       <td class="small">${dt(m.ts)}</td>
-      <td class="t-${m.type}"><b>${TYPES[m.type]?.ic || ''} ${TYPES[m.type]?.label || m.type}</b></td>
+      <td class="t-${m.type}"><b class="tl">${ico(TYPES[m.type]?.ic)}${TYPES[m.type]?.label || m.type}</b></td>
       <td>${esc(mName(m))}${m.editCount ? ' <span class="badge b-warn" title="انعدلت">معدّلة</span>' : ''}</td>
       <td class="num">${N(m.qty, m.type === 'adjust')} ${esc(m.unit)}${m.factor > 1 ? `<div class="small muted">${N(m.baseQty)} ${esc(m.baseUnit)}</div>` : ''}</td>
       <td class="small">${esc(moveText(m))}</td>
