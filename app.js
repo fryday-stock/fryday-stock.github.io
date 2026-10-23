@@ -88,7 +88,7 @@ const S = {
   loaded: new Set(),
   user: null,
   view: 'home',
-  stockLoc: 'all', stockQ: '',
+  stockLoc: 'all', stockQ: '', stockGroup: '',
   log: { from: monthStart(), to: today(), type: '', staff: '', q: '' },
   rep: { month: today().slice(0, 7) },
   adminTab: 'items',
@@ -518,33 +518,61 @@ async function saveMove() {
 }
 
 /* ═════════════ Stock ═════════════ */
+const NOGRP = 'بدون مجموعة';
+const grpOf = it => normTxt(it.group) || NOGRP;
+const allGroups = () => [...new Set(activeItems().map(grpOf))].sort((a, b) => a === NOGRP ? 1 : b === NOGRP ? -1 : a.localeCompare(b, 'ar'));
 function vStock() {
   const bal = balances(), tot = totalsByItem(bal), avg = avgCosts();
-  const locs = activeLocs();
+  const locs = activeLocs(), groups = allGroups();
   if (S.stockLoc !== 'all' && !locById(S.stockLoc)) S.stockLoc = 'all';
-  const L = S.stockLoc;
-  const q = S.stockQ.trim();
-  let rows = activeItems().map(it => ({ it, qty: L === 'all' ? (tot.get(it.id) || 0) : (bal.get(it.id + '|' + L) || 0) }));
+  if (S.stockGroup && !groups.includes(S.stockGroup)) S.stockGroup = '';
+  const L = S.stockLoc, G = S.stockGroup || '';
+  const q = normKey(S.stockQ);
+  let rows = activeItems().map(it => ({ it, g: grpOf(it), qty: L === 'all' ? (tot.get(it.id) || 0) : (bal.get(it.id + '|' + L) || 0) }));
   if (L !== 'all') rows = rows.filter(r => Math.abs(r.qty) > 0.0005 || S.moves.some(m => m.itemId === r.it.id && (m.fromLoc === L || m.toLoc === L)));
-  if (q) rows = rows.filter(r => r.it.name.includes(q));
+  if (G) rows = rows.filter(r => r.g === G);
+  if (q) rows = rows.filter(r => normKey(r.it.name).includes(q) || normKey(r.g).includes(q));
+  rows.forEach(r => r.val = Math.max(r.qty, 0) * (avg.get(r.it.id) || 0));
+  rows.sort((a, b) => (a.g === NOGRP) - (b.g === NOGRP) || a.g.localeCompare(b.g, 'ar') || a.it.name.localeCompare(b.it.name, 'ar'));
+  // summary
+  const byUnit = new Map(); rows.forEach(r => byUnit.set(r.it.baseUnit, (byUnit.get(r.it.baseUnit) || 0) + r.qty));
+  const totVal = rows.reduce((a, r) => a + r.val, 0);
   const per = it => locs.map(l => [l, bal.get(it.id + '|' + l.id) || 0]).filter(x => Math.abs(x[1]) > 0.0005);
+  const cols = 4 + (L === 'all' ? 2 : 0) + (isAdmin() ? 1 : 0);
+  let body = '', lastG = null;
+  for (const r of rows) {
+    if (r.g !== lastG) {
+      lastG = r.g; const gr = rows.filter(x => x.g === r.g);
+      body += `<tr class="grp"><td colspan="${cols}"><b>📁 ${esc(r.g)}</b> <span class="small muted">— ${gr.length} مادة${isAdmin() ? ` — القيمة ${M(gr.reduce((a, x) => a + x.val, 0))} د.ع` : ''}</span></td></tr>`;
+    }
+    const { it, qty } = r;
+    const st = L === 'all' ? status(it, qty) : (qty < -0.0005 ? ['رصيد سالب', 'b-bad'] : Math.abs(qty) < 0.0005 ? ['فارغ', 'b-muted'] : ['متوفر', 'b-ok']);
+    body += `<tr><td><b>${esc(it.name)}</b></td><td class="num ${qty < -0.0005 ? 'neg' : ''}">${N(qty)} ${esc(it.baseUnit)}</td><td class="small">${detailed(it, qty)}</td>
+      ${L === 'all' ? `<td class="small muted">${per(it).map(([l, v]) => `${esc(l.name)}: ${N(v)}`).join(' · ')}</td><td class="num">${+it.minQty ? N(it.minQty) : '—'}</td>` : ''}
+      ${isAdmin() ? `<td class="num">${M(r.val)}</td>` : ''}
+      <td><span class="badge ${st[1]}">${st[0]}</span></td></tr>`;
+  }
   $('#view-root').innerHTML = `
-    <div class="topline"><h1>الأرصدة</h1>
-      <div style="display:flex;gap:8px"><input class="in" id="sk-q" placeholder="بحث…" value="${esc(S.stockQ)}" style="width:180px">
-      <button class="btn ghost sm" id="sk-csv">تصدير</button></div></div>
+    <div class="topline"><h1>الأرصدة</h1><button class="btn ghost sm" id="sk-csv">تصدير</button></div>
+    <div class="filters">
+      <input class="in" id="sk-q" placeholder="🔍 بحث باسم المادة أو المجموعة…" value="${esc(S.stockQ)}" style="flex:1;min-width:220px">
+      <select class="in" id="sk-g"><option value="">كل المجموعات</option>${groups.map(g => `<option ${G === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
+    </div>
     <div class="chips"><button data-l="all" class="${L === 'all' ? 'on' : ''}">كل الأماكن</button>${locs.map(l => `<button data-l="${l.id}" class="${L === l.id ? 'on' : ''}">${esc(l.name)}</button>`).join('')}</div>
+    ${rows.length ? `<div class="sumbar">
+      <span><span class="muted small">النتائج</span><b>${rows.length} مادة</b></span>
+      <span><span class="muted small">الكمية</span><b>${[...byUnit].map(([u, v]) => `${N(v)} ${esc(u)}`).join(' · ')}</b></span>
+      ${isAdmin() ? `<span><span class="muted small">القيمة</span><b>${M(totVal)} د.ع</b></span>` : ''}
+    </div>` : ''}
     <div class="card"><div class="tbl-wrap">${rows.length ? `<table>
       <tr><th>المادة</th><th class="num">الرصيد</th><th>مفصّل</th>${L === 'all' ? '<th>التوزيع على الأماكن</th><th class="num">حد الأمان</th>' : ''}${isAdmin() ? '<th class="num">القيمة (د.ع)</th>' : ''}<th>الحالة</th></tr>
-      ${rows.map(({ it, qty }) => { const st = L === 'all' ? status(it, qty) : (qty < -0.0005 ? ['رصيد سالب', 'b-bad'] : Math.abs(qty) < 0.0005 ? ['فارغ', 'b-muted'] : ['متوفر', 'b-ok']);
-        return `<tr><td><b>${esc(it.name)}</b></td><td class="num ${qty < -0.0005 ? 'neg' : ''}">${N(qty)} ${esc(it.baseUnit)}</td><td class="small">${detailed(it, qty)}</td>
-        ${L === 'all' ? `<td class="small muted">${per(it).map(([l, v]) => `${esc(l.name)}: ${N(v)}`).join(' · ')}</td><td class="num">${+it.minQty ? N(it.minQty) : '—'}</td>` : ''}
-        ${isAdmin() ? `<td class="num">${M(Math.max(qty, 0) * (avg.get(it.id) || 0))}</td>` : ''}
-        <td><span class="badge ${st[1]}">${st[0]}</span></td></tr>`; }).join('')}
-    </table>` : `<div class="empty">ما اكو مواد ${q ? 'بهذا البحث' : L !== 'all' ? 'بهذا المكان' : 'بعد'}</div>`}</div></div>`;
+      ${body}
+    </table>` : `<div class="empty">ما اكو مواد ${q ? 'بهذا البحث' : G ? 'بهذي المجموعة' : L !== 'all' ? 'بهذا المكان' : 'بعد'}</div>`}</div></div>`;
   document.querySelectorAll('[data-l]').forEach(b => b.onclick = () => { S.stockLoc = b.dataset.l; vStock(); });
+  $('#sk-g').onchange = e => { S.stockGroup = e.target.value; vStock(); };
   $('#sk-q').oninput = e => { S.stockQ = e.target.value; const p = e.target.selectionStart; vStock(); const n = $('#sk-q'); n.focus(); n.setSelectionRange(p, p); };
   $('#sk-csv').onclick = () => csvDownload(`أرصدة_${L === 'all' ? 'الكل' : locName(L)}_${today()}.csv`,
-    [['المادة', 'الرصيد', 'الوحدة', 'مفصّل', 'متوسط الكلفة', 'القيمة'], ...rows.map(({ it, qty }) => [it.name, r3(qty), it.baseUnit, detailed(it, qty, true), Math.round(avg.get(it.id) || 0), Math.round(Math.max(qty, 0) * (avg.get(it.id) || 0))])]);
+    [['المجموعة', 'المادة', 'الرصيد', 'الوحدة', 'مفصّل', 'متوسط الكلفة', 'القيمة'], ...rows.map(r => [r.g, r.it.name, r3(r.qty), r.it.baseUnit, detailed(r.it, r.qty, true), Math.round(avg.get(r.it.id) || 0), Math.round(r.val)])]);
 }
 
 /* ═════════════ Log ═════════════ */
@@ -865,11 +893,11 @@ function vAdmin() {
 }
 const used = (field, id) => S.moves.some(m => m[field] === id);
 function admItems() {
-  const list = S.items.slice().sort((a, b) => (a.active === false) - (b.active === false) || a.name.localeCompare(b.name, 'ar'));
+  const list = S.items.slice().sort((a, b) => (a.active === false) - (b.active === false) || (a.group || 'ي').localeCompare(b.group || 'ي', 'ar') || a.name.localeCompare(b.name, 'ar'));
   $('#adm').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="muted small">${list.length} مادة</span><button class="btn sm" id="ad-new">+ مادة جديدة</button></div>
-    ${list.length ? `<div class="tbl-wrap"><table><tr><th>المادة</th><th>الوحدة الأساسية</th><th>الوحدة الكبيرة</th><th class="num">التعبئة</th><th class="num">حد الأمان</th><th></th></tr>
-    ${list.map(i => `<tr style="${i.active === false ? 'opacity:.5' : ''}"><td><b>${esc(i.name)}</b>${i.active === false ? ' <span class="badge b-muted">موقوفة</span>' : ''}</td><td>${esc(i.baseUnit)}</td><td>${esc(i.bigUnit || '—')}</td><td class="num">${i.bigUnit ? N(i.pack) : '—'}</td><td class="num">${+i.minQty ? N(i.minQty) : '—'}</td><td><button class="link" data-ed="${i.id}">تعديل</button></td></tr>`).join('')}
+    ${list.length ? `<div class="tbl-wrap"><table><tr><th>المادة</th><th>المجموعة</th><th>الوحدة الأساسية</th><th>الوحدة الكبيرة</th><th class="num">التعبئة</th><th class="num">حد الأمان</th><th></th></tr>
+    ${list.map(i => `<tr style="${i.active === false ? 'opacity:.5' : ''}"><td><b>${esc(i.name)}</b>${i.active === false ? ' <span class="badge b-muted">موقوفة</span>' : ''}</td><td class="small">${esc(i.group || '—')}</td><td>${esc(i.baseUnit)}</td><td>${esc(i.bigUnit || '—')}</td><td class="num">${i.bigUnit ? N(i.pack) : '—'}</td><td class="num">${+i.minQty ? N(i.minQty) : '—'}</td><td><button class="link" data-ed="${i.id}">تعديل</button></td></tr>`).join('')}
     </table></div>` : `<div class="empty">ما اكو مواد. ابدي بإضافة أول مادة.</div>`}`;
   $('#ad-new').onclick = () => itemForm();
   document.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => itemForm(itemById(b.dataset.ed)));
@@ -878,7 +906,11 @@ function itemForm(it) {
   const u = `<datalist id="units">${UNITS.map(x => `<option value="${x}">`).join('')}</datalist>`;
   const hasMoves = it && used('itemId', it.id);
   modal(`<h2>${it ? 'تعديل مادة' : 'مادة جديدة'}</h2>${u}
-    <div class="field"><label>اسم المادة <span class="req">*</span></label><input class="in" id="i-n" value="${esc(it?.name)}"></div>
+    <datalist id="groups">${allGroups().filter(g => g !== NOGRP).map(g => `<option value="${esc(g)}">`).join('')}</datalist>
+    <div class="row">
+      <div class="field"><label>اسم المادة <span class="req">*</span></label><input class="in" id="i-n" value="${esc(it?.name)}"></div>
+      <div class="field"><label>المجموعة</label><input class="in" id="i-grp" list="groups" value="${esc(it?.group)}" placeholder="منظفات، سفري، ألبان…"></div>
+    </div>
     <div class="row">
       <div class="field"><label>الوحدة الأساسية <span class="req">*</span></label><input class="in" id="i-b" list="units" value="${esc(it?.baseUnit)}" placeholder="قطعة، كغم…"><div class="hint">اللي تصرف وتجرد بيها</div></div>
       <div class="field"><label>حد الأمان (بالأساسية)</label><input class="in" id="i-m" type="number" min="0" step="any" value="${esc(it?.minQty ?? '')}"></div>
@@ -899,7 +931,7 @@ function itemForm(it) {
         if (S.items.some(x => x.name === name && x.id !== it?.id)) return toast('اكو مادة بنفس الاسم', true);
         if (bigUnit && !(pack > 1)) return toast('اكتب التعبئة (أكبر من 1) للوحدة الكبيرة', true);
         if (bigUnit && bigUnit === baseUnit) return toast('الوحدة الكبيرة لازم تختلف عن الأساسية', true);
-        const doc = { name, baseUnit, bigUnit, pack: bigUnit ? pack : 0, minQty };
+        const doc = { name, group: normTxt(m.querySelector('#i-grp').value), baseUnit, bigUnit, pack: bigUnit ? pack : 0, minQty };
         if (it) await B.update('items', it.id, doc);
         else await B.add('items', { ...doc, active: true, created: Date.now() });
         close(); toast('✔ انحفظت المادة');
@@ -1003,7 +1035,7 @@ function loadXLSX() {
 const normTxt = v => String(v ?? '').replace(/\s+/g, ' ').trim();
 const normKey = v => normTxt(v).replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
 const toNum = v => { if (v === '' || v == null) return null; const n = +String(v).replace(/[,\s]/g, '').replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)); return isFinite(n) ? n : NaN; };
-const IMP_COLS = { loc: ['المخزن', 'مكان الخزن', 'المكان'], name: ['اسم المادة', 'المادة'], base: ['الوحدة الأساسية', 'الوحدة الاساسية', 'الوحدة'], big: ['الوحدة الكبيرة'], pack: ['التعبئة'], qty: ['الرصيد'], price: ['سعر الوحدة الأساسية', 'سعر الوحدة الاساسية', 'السعر', 'سعر القطعة'], min: ['حد الأمان', 'حد الامان'] };
+const IMP_COLS = { loc: ['المخزن', 'مكان الخزن', 'المكان'], name: ['اسم المادة', 'المادة'], group: ['المجموعة', 'المجموعه', 'التصنيف'], base: ['الوحدة الأساسية', 'الوحدة الاساسية', 'الوحدة'], big: ['الوحدة الكبيرة'], pack: ['التعبئة'], qty: ['الرصيد'], price: ['سعر الوحدة الأساسية', 'سعر الوحدة الاساسية', 'السعر', 'سعر القطعة'], min: ['حد الأمان', 'حد الامان'] };
 async function importExcel(file) {
   let XLSX;
   try { XLSX = await loadXLSX(); } catch (e) { return toast(e.message, true); }
@@ -1025,7 +1057,7 @@ async function importExcel(file) {
   for (let r = hr + 1; r < grid.length; r++) {
     const g = k => map[k] == null ? '' : grid[r][map[k]];
     const name = normTxt(g('name')); if (!name) continue;
-    const line = r + 1, loc = normTxt(g('loc')), base = normTxt(g('base')), big = normTxt(g('big'));
+    const line = r + 1, grp = normTxt(g('group')), loc = normTxt(g('loc')), base = normTxt(g('base')), big = normTxt(g('big'));
     const pack = toNum(g('pack')), qty = toNum(g('qty')) ?? 0, price = toNum(g('price')) ?? 0, min = toNum(g('min')) ?? 0;
     if (!base) { errs.push(`سطر ${line}: «${name}» بدون وحدة أساسية`); continue; }
     if (big && !(pack > 1)) { errs.push(`سطر ${line}: «${name}» بيه وحدة كبيرة بدون تعبئة صحيحة`); continue; }
@@ -1034,7 +1066,7 @@ async function importExcel(file) {
     if (qty > 0 && !(price > 0)) { errs.push(`سطر ${line}: «${name}» بيه رصيد بدون سعر`); continue; }
     const ik = normKey(name), ex = itemsByKey.get(ik) || newItems.get(ik);
     if (ex && (ex.baseUnit !== base)) { errs.push(`سطر ${line}: «${name}» مكتوبة بوحدة «${base}» وبمكان ثاني «${ex.baseUnit}»`); continue; }
-    if (!ex) newItems.set(ik, { id: B.newId(), name, baseUnit: base, bigUnit: big, pack: big ? pack : 0, minQty: min, active: true, created: Date.now() });
+    if (!ex) newItems.set(ik, { id: B.newId(), name, group: grp, baseUnit: base, bigUnit: big, pack: big ? pack : 0, minQty: min, active: true, created: Date.now() });
     if (loc && !locsByKey.get(normKey(loc)) && !newLocs.get(normKey(loc))) newLocs.set(normKey(loc), { id: B.newId(), name: loc, order: S.locations.length + newLocs.size + 1, active: true });
     if (qty > 0) rows.push({ ik, lk: normKey(loc), qty, price, line });
   }
