@@ -216,6 +216,7 @@ async function boot() {
 }
 function renderDevice(err) {
   $('#app').innerHTML = `<div class="login"><div class="box">
+    <img class="logo-big" src="logo.png" alt="">
     <h1>${esc(CONFIG.title)}</h1><p class="sub">هذا الجهاز غير مفعّل. يفعّله المدير مرة وحدة بكلمة سر المطعم.</p>
     <div class="field"><label>إيميل المطعم</label><input class="in" id="dv-e" dir="ltr" value="${esc(CONFIG.deviceEmail || '')}"></div>
     <div class="field"><label>كلمة سر المطعم</label><input class="in" id="dv-p" type="password" dir="ltr"></div>
@@ -272,10 +273,10 @@ function render() {
   const nav = NAV.filter(n => !n[3] || isAdmin());
   if (!nav.find(n => n[0] === S.view)) S.view = 'home';
   $('#app').innerHTML = `
-  <div class="mobile-head"><span>${esc(CONFIG.title)}</span><span>${esc(S.user.name)} <button id="lo2">خروج</button></span></div>
+  <div class="mobile-head"><span><img class="mlogo" src="logo.png" alt="">${esc(CONFIG.title)}</span><span>${esc(S.user.name)} <button id="lo2">خروج</button></span></div>
   <div class="shell">
     <aside class="side">
-      <div class="brand">${esc(CONFIG.title)}<small>نظام المخزن</small></div>
+      <div class="brand"><img class="logo" src="logo.png" alt=""><div>${esc(CONFIG.title)}<small>نظام المخزن</small></div></div>
       ${nav.map(n => `<button class="nav ${S.view === n[0] ? 'on' : ''}" data-go="${n[0]}"><span class="ic">${n[1]}</span>${n[2]}</button>`).join('')}
       <div class="me">👤 ${esc(S.user.name)} <span class="small">(${S.user.role === 'admin' ? 'مدير' : 'موظف'})</span><br><button class="btn ghost sm" id="lo">تسجيل خروج</button></div>
     </aside>
@@ -300,6 +301,7 @@ const modeTag = () => B.mode === 'local' ? `<span class="mode">وضع تجربة
 /* ═════════════ Setup & Login ═════════════ */
 function renderSetup() {
   $('#app').innerHTML = `<div class="login"><div class="box">
+    <img class="logo-big" src="logo.png" alt="">
     <h1>${esc(CONFIG.title)}</h1><p class="sub">أول تشغيل: أنشئ حساب المدير</p>
     <div class="field"><label>اسم المدير</label><input class="in" id="su-n" placeholder="مثلاً: أحمد"></div>
     <div class="field"><label>رمز سري (4 أرقام)</label><input class="in pin" id="su-p" inputmode="numeric" maxlength="6" type="password"></div>
@@ -319,6 +321,7 @@ function renderLogin() {
   const staff = S.staff.filter(s => s.active !== false).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   let pick = null;
   $('#app').innerHTML = `<div class="login"><div class="box">
+    <img class="logo-big" src="logo.png" alt="">
     <h1>${esc(CONFIG.title)}</h1><p class="sub">اختر اسمك واكتب رمزك</p>
     <div class="staff-grid">${staff.map(s => `<button data-id="${s.id}">${esc(s.name)}</button>`).join('')}</div>
     <div class="field"><input class="in pin" id="lg-p" inputmode="numeric" maxlength="6" type="password" placeholder="••••"></div>
