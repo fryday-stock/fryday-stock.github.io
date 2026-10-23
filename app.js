@@ -292,16 +292,23 @@ const NAV = [
   ['audit', 'audit', 'التعديلات والحذف', true],
   ['admin', 'admin', 'الإدارة', true]
 ];
+/* مؤشر الاتصال (عرض فقط): يتحدث بمكانه بدون إعادة رسم الصفحة */
+const netBadge = () => B?.mode === 'local' ? '' : `<span class="net ${navigator.onLine ? 'on' : 'off'}" role="status">${navigator.onLine ? 'متصل' : 'غير متصل'}</span>`;
+const netUpdate = () => document.querySelectorAll('.net').forEach(el => el.outerHTML = netBadge());
+window.addEventListener('online', netUpdate);
+window.addEventListener('offline', netUpdate);
+
 function render() {
   if (!S.staff.length) return renderSetup();
   if (!S.user) return renderLogin();
   const nav = NAV.filter(n => !n[3] || isAdmin());
   if (!nav.find(n => n[0] === S.view)) S.view = 'home';
   $('#app').innerHTML = `
-  <div class="mobile-head"><span><img class="mlogo" src="logo.png" alt="">${esc(CONFIG.title)}</span><span>${esc(S.user.name)} <button id="lo2">خروج</button></span></div>
+  <div class="mobile-head"><span><img class="mlogo" src="logo.png" alt="">${esc(CONFIG.title)}</span><span>${netBadge()}${esc(S.user.name)} <button id="lo2">خروج</button></span></div>
   <div class="shell">
     <aside class="side">
       <div class="brand"><img class="logo" src="logo.png" alt=""><div>${esc(CONFIG.title)}<small>نظام المخزن</small></div></div>
+      ${netBadge()}
       ${nav.map(n => `<button class="nav ${S.view === n[0] ? 'on' : ''}" data-go="${n[0]}"><span class="ic">${ico(n[1])}</span>${n[2]}</button>`).join('')}
       <div class="me">${ico('user')} ${esc(S.user.name)} <span class="small">(${S.user.role === 'admin' ? 'مدير' : 'موظف'})</span><br><button class="btn ghost sm" id="lo">تسجيل خروج</button></div>
     </aside>

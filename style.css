@@ -239,3 +239,13 @@ tr.grp svg.i,.side .me svg.i{opacity:.8;margin-inline-end:2px}
 
 /* بعض المتصفحات (سامسونگ) ما تفرض الظلام إذا الموقع يصرّح بدعم الوضع الداكن؛ نخليه نفس الألوان الفاتحة */
 @media (prefers-color-scheme:dark){:root{color-scheme:only light}html,body{background:var(--bg);color:var(--ink)}}
+
+/* ═════ Connection badge ═════ */
+.net{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:800;white-space:nowrap;line-height:1.6}
+.net::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor}
+.net.on{background:var(--ok-soft);color:var(--ok)}
+.net.on::before{box-shadow:0 0 0 3px rgba(18,122,58,.2)}
+.net.off{background:var(--bad-soft);color:var(--bad);animation:netblink 1.6s ease-in-out infinite}
+@keyframes netblink{50%{opacity:.55}}
+.side .net{align-self:flex-start;margin:0 8px 8px}
+@media (min-width:701px) and (max-width:1100px){.side .net{align-self:center;margin:0 0 6px;padding:3px 8px;font-size:11px}}
