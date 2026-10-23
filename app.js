@@ -58,9 +58,11 @@ async function firebaseBackend(cfg) {
     async remove(c, id) { await fs.deleteDoc(fs.doc(db, c, id)); },
     newId: () => fs.doc(fs.collection(db, 'audit')).id,
     async batch(ops) {
-      const b = fs.writeBatch(db);
-      for (const o of ops) { const ref = fs.doc(db, o.col, o.id); o.type === 'set' ? b.set(ref, o.data) : b.update(ref, o.data); }
-      await b.commit();
+      for (let i = 0; i < ops.length; i += 450) {
+        const b = fs.writeBatch(db);
+        for (const o of ops.slice(i, i + 450)) { const ref = fs.doc(db, o.col, o.id); o.type === 'set' ? b.set(ref, o.data) : b.update(ref, o.data); }
+        await b.commit();
+      }
     }
   };
 }
@@ -993,9 +995,93 @@ function staffForm(s) {
     });
 }
 
+/* ═════════════ Import from Excel ═════════════ */
+function loadXLSX() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'xlsx.full.min.js'; sc.onload = () => res(window.XLSX); sc.onerror = () => rej(new Error('تعذّر تحميل قارئ الإكسل')); document.head.appendChild(sc); });
+}
+const normTxt = v => String(v ?? '').replace(/\s+/g, ' ').trim();
+const normKey = v => normTxt(v).replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي');
+const toNum = v => { if (v === '' || v == null) return null; const n = +String(v).replace(/[,\s]/g, '').replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)); return isFinite(n) ? n : NaN; };
+const IMP_COLS = { loc: ['المخزن', 'مكان الخزن', 'المكان'], name: ['اسم المادة', 'المادة'], base: ['الوحدة الأساسية', 'الوحدة الاساسية', 'الوحدة'], big: ['الوحدة الكبيرة'], pack: ['التعبئة'], qty: ['الرصيد'], price: ['سعر الوحدة الأساسية', 'سعر الوحدة الاساسية', 'السعر', 'سعر القطعة'], min: ['حد الأمان', 'حد الامان'] };
+async function importExcel(file) {
+  let XLSX;
+  try { XLSX = await loadXLSX(); } catch (e) { return toast(e.message, true); }
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const sh = wb.Sheets[wb.SheetNames.find(n => normTxt(n) === 'المواد') || wb.SheetNames[0]];
+  const grid = XLSX.utils.sheet_to_json(sh, { header: 1, defval: '', raw: true });
+  // find header row
+  let hr = -1, map = {};
+  for (let r = 0; r < Math.min(grid.length, 15); r++) {
+    const row = grid[r].map(normKey), m = {};
+    for (const [k, names] of Object.entries(IMP_COLS)) { const i = row.findIndex(c => names.some(n => c.startsWith(normKey(n)))); if (i >= 0) m[k] = i; }
+    if (m.name != null && m.base != null) { hr = r; map = m; break; }
+  }
+  if (hr < 0) return toast('ما لكيت عمود «اسم المادة» و«الوحدة الأساسية» بالملف', true);
+  const errs = [], rows = [];
+  const itemsByKey = new Map(S.items.map(i => [normKey(i.name), i]));
+  const locsByKey = new Map(S.locations.map(l => [normKey(l.name), l]));
+  const newItems = new Map(), newLocs = new Map();
+  for (let r = hr + 1; r < grid.length; r++) {
+    const g = k => map[k] == null ? '' : grid[r][map[k]];
+    const name = normTxt(g('name')); if (!name) continue;
+    const line = r + 1, loc = normTxt(g('loc')), base = normTxt(g('base')), big = normTxt(g('big'));
+    const pack = toNum(g('pack')), qty = toNum(g('qty')) ?? 0, price = toNum(g('price')) ?? 0, min = toNum(g('min')) ?? 0;
+    if (!base) { errs.push(`سطر ${line}: «${name}» بدون وحدة أساسية`); continue; }
+    if (big && !(pack > 1)) { errs.push(`سطر ${line}: «${name}» بيه وحدة كبيرة بدون تعبئة صحيحة`); continue; }
+    if ([pack, qty, price, min].some(Number.isNaN) || qty < 0 || price < 0) { errs.push(`سطر ${line}: «${name}» بيه رقم غير صحيح`); continue; }
+    if (qty > 0 && !loc) { errs.push(`سطر ${line}: «${name}» بيه رصيد بدون مخزن`); continue; }
+    if (qty > 0 && !(price > 0)) { errs.push(`سطر ${line}: «${name}» بيه رصيد بدون سعر`); continue; }
+    const ik = normKey(name), ex = itemsByKey.get(ik) || newItems.get(ik);
+    if (ex && (ex.baseUnit !== base)) { errs.push(`سطر ${line}: «${name}» مكتوبة بوحدة «${base}» وبمكان ثاني «${ex.baseUnit}»`); continue; }
+    if (!ex) newItems.set(ik, { id: B.newId(), name, baseUnit: base, bigUnit: big, pack: big ? pack : 0, minQty: min, active: true, created: Date.now() });
+    if (loc && !locsByKey.get(normKey(loc)) && !newLocs.get(normKey(loc))) newLocs.set(normKey(loc), { id: B.newId(), name: loc, order: S.locations.length + newLocs.size + 1, active: true });
+    if (qty > 0) rows.push({ ik, lk: normKey(loc), qty, price, line });
+  }
+  const dupBal = new Map(); rows.forEach(x => { const k = x.ik + '|' + x.lk; dupBal.set(k, (dupBal.get(k) || 0) + 1); });
+  const dups = [...dupBal].filter(([, n]) => n > 1).length;
+  const totalVal = rows.reduce((a, x) => a + x.qty * x.price, 0);
+  const already = rows.filter(x => { const it = itemsByKey.get(x.ik), lc = locsByKey.get(x.lk); return it && lc && S.moves.some(m => m.type === 'opening' && m.itemId === it.id && m.toLoc === lc.id); }).length;
+  modal(`<h2>مراجعة الاستيراد</h2>
+    <p class="small muted" style="margin-top:-6px">${esc(file.name)}</p>
+    <div class="kpis" style="grid-template-columns:repeat(2,1fr)">
+      <div class="kpi"><div class="l">مخازن جديدة</div><div class="v">${newLocs.size}</div></div>
+      <div class="kpi"><div class="l">مواد جديدة</div><div class="v">${newItems.size}</div></div>
+      <div class="kpi"><div class="l">أرصدة افتتاحية</div><div class="v">${rows.length}</div></div>
+      <div class="kpi"><div class="l">قيمتها (د.ع)</div><div class="v">${M(totalVal)}</div></div>
+    </div>
+    ${newLocs.size ? `<p class="small"><b>المخازن الجديدة:</b> ${[...newLocs.values()].map(l => esc(l.name)).join('، ')}</p>` : ''}
+    ${already ? `<p class="hint bad">⚠ ${already} رصيد من هذا الملف مسجّل سابقاً كرصيد افتتاحي بنفس المخزن. إذا تستورد، راح يتكرر وينضاعف. الغالب انت مستورد هذا الملف قبل.</p>` : ''}
+    ${dups ? `<p class="hint bad">${dups} مادة مكررة بنفس المخزن، راح تنجمع أرصدتها.</p>` : ''}
+    ${errs.length ? `<div class="card" style="background:var(--bad-soft);box-shadow:none"><b>${errs.length} سطر فيه مشكلة وراح يتجاوزه:</b><div class="small" style="max-height:160px;overflow:auto;margin-top:6px">${errs.map(esc).join('<br>')}</div></div>` : '<p class="hint ok">✔ ما اكو أخطاء بالملف</p>'}
+    <div class="foot"><button class="btn" id="im-go" ${!newItems.size && !rows.length && !newLocs.size ? 'disabled' : ''}>استيراد</button><button class="btn ghost" id="im-c">إلغاء</button></div>`,
+    (md, close) => {
+      md.querySelector('#im-c').onclick = close;
+      md.querySelector('#im-go').onclick = async () => {
+        md.querySelector('#im-go').disabled = true; md.querySelector('#im-go').textContent = 'جاري الاستيراد…';
+        const ts = Date.now(), ops = [];
+        for (const l of newLocs.values()) { const { id, ...d } = l; ops.push({ type: 'set', col: 'locations', id, data: d }); }
+        for (const it of newItems.values()) { const { id, ...d } = it; ops.push({ type: 'set', col: 'items', id, data: d }); }
+        for (const x of rows) {
+          const it = itemsByKey.get(x.ik) || newItems.get(x.ik), lc = locsByKey.get(x.lk) || newLocs.get(x.lk);
+          ops.push({ type: 'set', col: 'moves', id: B.newId(), data: { ts, type: 'opening', itemId: it.id, itemName: it.name, unit: it.baseUnit, qty: r3(x.qty), factor: 1, baseQty: r3(x.qty), baseUnit: it.baseUnit,
+            price: x.price, cost: Math.round(x.qty * x.price), fromLoc: '', toLoc: lc.id, reason: '', ref: '', note: 'استيراد من إكسل', staffId: S.user.id, staffName: S.user.name } });
+        }
+        try { await B.batch(ops); }
+        catch (e) { md.querySelector('#im-go').disabled = false; md.querySelector('#im-go').textContent = 'استيراد'; return toast('فشل الاستيراد: ' + e.message, true); }
+        close(); toast(`✔ انضاف ${newItems.size} مادة و${rows.length} رصيد`);
+      };
+    });
+}
+
 function admSystem() {
   const last = localStorage.getItem('inv_last_backup');
   $('#adm').innerHTML = `
+    <h2>استيراد من إكسل</h2>
+    <p class="small muted">ترفع ملف إكسل بيه المواد وأرصدتها (حسب القالب)، والنظام يضيف المخازن والمواد والأرصدة الافتتاحية مرة وحدة. المواد الموجودة مسبقاً بنفس الاسم ما تتكرر.</p>
+    <input type="file" id="imp-f" accept=".xlsx,.xls,.csv" hidden>
+    <button class="btn" id="imp">اختيار ملف الإكسل</button>
+    <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
     <h2>النسخة الاحتياطية</h2>
     <p class="small muted">ينزّل ملف بيه كل البيانات (المواد، الأماكن، الموظفين، كل الحركات، الجرودات). احتفظ بيه بمكان آمن. يُنصح كل أسبوع أو كل شهر.</p>
     <p class="small">آخر نسخة من هذا الجهاز: <b>${last ? dt(+last) : 'ما اكو'}</b></p>
@@ -1004,6 +1090,8 @@ function admSystem() {
     <h2>هذا الجهاز</h2>
     <p class="small muted">إلغاء التفعيل يخلي هذا الجهاز يحتاج كلمة سر المطعم مرة ثانية. استخدمه إذا الجهاز راح يطلع من المطعم أو ضاع.</p>
     ${B.mode === 'firebase' ? '<button class="btn danger" id="dv-out">إلغاء تفعيل هذا الجهاز</button>' : '<span class="mode">وضع تجربة</span>'}`;
+  $('#imp').onclick = () => $('#imp-f').click();
+  $('#imp-f').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importExcel(f); };
   $('#bk').onclick = () => {
     const data = { exportedAt: new Date().toISOString(), title: CONFIG.title, items: S.items, locations: S.locations, staff: S.staff.map(({ pinHash, ...x }) => x), moves: S.allMoves, stocktakes: S.stocktakes, audit: S.audit };
     const a = document.createElement('a');
