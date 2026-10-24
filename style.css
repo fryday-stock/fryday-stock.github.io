@@ -1,16 +1,16 @@
 /* ═════ FryDay Stock — design system v3 ═════
    بطاقات ملونة بتدرج + شريط علوي متدرج + جداول برأس متدرج.
-   خياران للألوان: الافتراضي (أ) قريب من ألوان فرايدي، و(ب) [data-theme="b"] حسب ui-ux-pro-max.
+   الألوان والخط من ui-ux-pro-max: أزرق ملكي + كهرماني، خط IBM Plex Sans Arabic.
    الأيقونات SVG تجي من ico() بـ app.js. */
 :root{
   color-scheme:only light; /* يمنع وضع الظلام بالمتصفح (سامسونگ/كروم) من تغيير الألوان */
-  --font:"Cairo",Tahoma,Arial,sans-serif;
-  /* brand (خيار أ: أزرق فرايدي + أصفر) */
-  --g1:#0b3d6e; --g2:#1a85d6;              /* primary gradient: dark → light */
-  --pri:#0e5fa8; --pri-ink:#0b3d6e; --pri-50:#eaf3fc; --pri-100:#d4e7f9;
-  --acc:#f5d312; --acc-2:#ffe14d; --acc-ink:#0b3d6e;
-  --side1:#0b3d6e; --side2:#072746;
-  --bg:#f3f6fa; --card:#fff; --ink:#0f1e2e; --ink-2:#33465b; --muted:#5d6d80; --line:#e3e8ef; --line-2:#cdd6e1;
+  /* الألوان (ui-ux-pro-max: Analytics Dashboard — أزرق ملكي + كهرماني، منسجم ويّا لوغو فرايدي) */
+  --font:"IBM Plex Sans Arabic",Tahoma,Arial,sans-serif;
+  --g1:#1e3a8a; --g2:#3b82f6;              /* primary gradient: dark → light */
+  --pri:#1e40af; --pri-ink:#1e3a8a; --pri-50:#eff6ff; --pri-100:#dbeafe;
+  --acc:#f59e0b; --acc-2:#fbbf24; --acc-ink:#1f2937;
+  --side1:#172554; --side2:#0f172a;
+  --bg:#f8fafc; --card:#fff; --ink:#0f172a; --ink-2:#334155; --muted:#64748b; --line:#e2e8f0; --line-2:#cbd5e1;
   /* status */
   --ok:#0f7a43; --ok-soft:#dcf5e6; --warn:#a14a07; --warn-soft:#fff1d6; --bad:#c42020; --bad-soft:#fde8e8;
   /* movement colours (gradient light → dark; text sits on the dark end) */
@@ -19,15 +19,6 @@
   --shadow:0 1px 2px rgba(15,30,46,.05),0 4px 16px rgba(15,30,46,.06);
   --shadow-lg:0 18px 40px rgba(7,39,70,.20);
   --t:180ms cubic-bezier(.2,.7,.3,1);
-}
-:root[data-theme="b"]{
-  /* خيار ب (ui-ux-pro-max: Analytics Dashboard — Blue data + amber highlights) */
-  --font:"IBM Plex Sans Arabic","Cairo",Tahoma,Arial,sans-serif;
-  --g1:#1e3a8a; --g2:#3b82f6;
-  --pri:#1e40af; --pri-ink:#1e3a8a; --pri-50:#eff6ff; --pri-100:#dbeafe;
-  --acc:#f59e0b; --acc-2:#fbbf24; --acc-ink:#1f2937;
-  --side1:#172554; --side2:#0f172a;
-  --bg:#f8fafc; --ink:#0f172a; --ink-2:#334155; --muted:#64748b; --line:#e2e8f0; --line-2:#cbd5e1;
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.55;-webkit-tap-highlight-color:transparent;-webkit-font-smoothing:antialiased}

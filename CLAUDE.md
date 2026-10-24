@@ -11,9 +11,10 @@
 |---|---|
 | `index.html` | الهيكل فقط |
 | `app.js` | كل المنطق (ES module، بدون build) |
-| `style.css` | الشكل. الألوان متغيرات بأعلى الملف (`--pri`, `--side`, `--acc`…) من لوغو فرايدي: أزرق `#0b3d6e`/`#1a85d6` وأصفر `#f5d312` |
+| `style.css` | الشكل. الألوان متغيرات بأعلى الملف (`--g1`/`--g2` تدرج أساسي، `--acc`، `--side1/2`، وألوان الحركات `--in1/2`…) — أزرق ملكي `#1e3a8a`/`#3b82f6` + كهرماني `#f59e0b`، خط IBM Plex Sans Arabic (اختيار سكل ui-ux-pro-max). `color-scheme: only light` يمنع وضع الظلام بالمتصفح من تخريب الألوان |
 | `config.js` | اسم المطعم + إيميل حساب الأجهزة + إعدادات Firebase. إذا `apiKey` فارغ يشتغل «وضع تجربة» على localStorage |
 | `firestore.rules` | قواعد الحماية (تنلصق يدوياً بـ Firebase Console ← Firestore ← Rules) |
+| `.claude/skills/ui-ux-pro-max` | سكل تصميم (nextlevelbuilder/ui-ux-pro-max-skill، MIT). GitHub Pages ما ينشره |
 | `logo.png` | اللوغو (مقصوص من سكرين انستغرام، دقة واطية — يُستبدل بالأصلي إذا توفر) |
 | `xlsx.full.min.js` | مكتبة **xlsx-js-style 1.2.0** (نسخة SheetJS تدعم التنسيق) — للاستيراد والتصدير المنسّق. تنحمّل عند الحاجة فقط |
 
