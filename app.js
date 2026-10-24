@@ -321,9 +321,9 @@ const NAV = [
   ['purchases', 'purchases', 'المشتريات'],
   ['stock', 'stock', 'الأرصدة'],
   ['log', 'log', 'السجل'],
-  ['stocktake', 'stocktake', 'الجرد', true],
-  ['reports', 'reports', 'التقارير', true],
-  ['audit', 'audit', 'التعديلات والحذف', true],
+  ['stocktake', 'stocktake', 'الجرد'],
+  ['reports', 'reports', 'التقارير'],
+  ['audit', 'audit', 'التعديلات والحذف'],
   ['admin', 'admin', 'الإدارة', true]
 ];
 /* مؤشر الاتصال (عرض فقط): يتحدث بمكانه بدون إعادة رسم الصفحة */
@@ -431,8 +431,8 @@ function vHome() {
     <div class="actions">
       ${['in', 'out', 'transfer', 'waste', 'return'].map(t => `<button class="act ${t}" data-t="${t}"><span class="ic">${ico(TYPES[t].ic)}</span><span class="tx"><b>${TYPES[t].label}</b><small>${ACT_DESC[t]}</small></span><span class="bgi" aria-hidden="true">${ico(TYPES[t].ic)}</span><span class="goi" aria-hidden="true">${ico('arrow')}</span></button>`).join('')}
     </div>
-    <div class="overview ${isAdmin() ? '' : 'solo'}">
-      ${isAdmin() ? `<div class="valcard"><div class="vc-top"><span>قيمة المخزون</span><img src="logo.png" alt=""></div><div class="vc-num">${M(value)}<small>د.ع</small></div><div class="vc-foot"><span>${items.length} مادة</span><span>${locs.length} أماكن خزن</span></div></div>` : ''}
+    <div class="overview">
+      <div class="valcard"><div class="vc-top"><span>قيمة المخزون</span><img src="logo.png" alt=""></div><div class="vc-num">${M(value)}<small>د.ع</small></div><div class="vc-foot"><span>${items.length} مادة</span><span>${locs.length} أماكن خزن</span></div></div>
       <div class="kpis">
         <div class="kpi k-blue"><span class="ki">${ico('stock')}</span><div><div class="l">عدد المواد</div><div class="v">${items.length}</div></div></div>
         <div class="kpi k-amber ${low.length ? 'warn' : ''}"><span class="ki">${ico('alert')}</span><div><div class="l">مواد تحتاج طلب</div><div class="v">${low.length}</div></div></div>
@@ -615,18 +615,18 @@ function vStock() {
   const byUnit = new Map(); rows.forEach(r => byUnit.set(r.it.baseUnit, (byUnit.get(r.it.baseUnit) || 0) + r.qty));
   const totVal = rows.reduce((a, r) => a + r.val, 0);
   const per = it => locs.map(l => [l, bal.get(it.id + '|' + l.id) || 0]).filter(x => Math.abs(x[1]) > 0.0005);
-  const cols = 3 + (L === 'all' ? 2 : 0) + (isAdmin() ? 1 : 0);
+  const cols = 4 + (L === 'all' ? 2 : 0);
   let body = '', lastG = null;
   for (const r of rows) {
     if (r.g !== lastG) {
       lastG = r.g; const gr = rows.filter(x => x.g === r.g);
-      body += `<tr class="grp"><td colspan="${cols}"><b>${ico('folder')} ${esc(r.g)}</b> <span class="small muted">— ${gr.length} مادة${isAdmin() ? ` — القيمة ${M(gr.reduce((a, x) => a + x.val, 0))} د.ع` : ''}</span></td></tr>`;
+      body += `<tr class="grp"><td colspan="${cols}"><b>${ico('folder')} ${esc(r.g)}</b> <span class="small muted">— ${gr.length} مادة — القيمة ${M(gr.reduce((a, x) => a + x.val, 0))} د.ع</span></td></tr>`;
     }
     const { it, qty } = r;
     const st = L === 'all' ? status(it, qty) : (qty < -0.0005 ? ['رصيد سالب', 'b-bad'] : Math.abs(qty) < 0.0005 ? ['فارغ', 'b-muted'] : ['متوفر', 'b-ok']);
     body += `<tr><td><button class="item-link" data-card="${it.id}">${esc(it.name)}</button>${sub(detailed(it, qty))}</td><td class="num ${qty < -0.0005 ? 'neg' : ''}">${N(qty)} ${esc(it.baseUnit)}</td>
       ${L === 'all' ? `<td class="small muted">${per(it).map(([l, v]) => `${esc(l.name)}: ${N(v)}`).join(' · ')}</td><td class="num">${+it.minQty ? N(it.minQty) : '—'}</td>` : ''}
-      ${isAdmin() ? `<td class="num">${M(r.val)}</td>` : ''}
+      <td class="num">${M(r.val)}</td>
       <td><span class="badge ${st[1]}">${st[0]}</span></td></tr>`;
   }
   $('#view-root').innerHTML = `
@@ -639,10 +639,10 @@ function vStock() {
     ${rows.length ? `<div class="sumbar">
       <span><span class="muted small">النتائج</span><b>${rows.length} مادة</b></span>
       <span><span class="muted small">الكمية</span><b>${[...byUnit].map(([u, v]) => `${N(v)} ${esc(u)}`).join(' · ')}</b></span>
-      ${isAdmin() ? `<span><span class="muted small">القيمة</span><b>${M(totVal)} د.ع</b></span>` : ''}
+      <span><span class="muted small">القيمة</span><b>${M(totVal)} د.ع</b></span>
     </div>` : ''}
     <div class="card"><div class="tbl-wrap">${rows.length ? `<table>
-      <tr><th>المادة</th><th class="num">الرصيد</th>${L === 'all' ? '<th>التوزيع على الأماكن</th><th class="num">حد الأمان</th>' : ''}${isAdmin() ? '<th class="num">القيمة (د.ع)</th>' : ''}<th>الحالة</th></tr>
+      <tr><th>المادة</th><th class="num">الرصيد</th>${L === 'all' ? '<th>التوزيع على الأماكن</th><th class="num">حد الأمان</th>' : ''}<th class="num">القيمة (د.ع)</th><th>الحالة</th></tr>
       ${body}
     </table>` : `<div class="empty">ما اكو مواد ${q ? 'بهذا البحث' : G ? 'بهذي المجموعة' : L !== 'all' ? 'بهذا المكان' : 'بعد'}</div>`}</div></div>`;
   document.querySelectorAll('[data-l]').forEach(b => b.onclick = () => { S.stockLoc = b.dataset.l; vStock(); });
@@ -650,17 +650,17 @@ function vStock() {
   $('#sk-g').onchange = e => { S.stockGroup = e.target.value; vStock(); };
   $('#sk-q').oninput = e => { S.stockQ = e.target.value; const p = e.target.selectionStart; vStock(); const n = $('#sk-q'); n.focus(); n.setSelectionRange(p, p); };
   $('#sk-csv').onclick = () => {
-    const adm = isAdmin(), out = []; let lg = null;
+    const out = []; let lg = null;
     for (const r of rows) {
       if (r.g !== lg) { lg = r.g; out.push({ group: r.g }); }
       const row = [r.it.name, r3(r.qty), r.it.baseUnit, detailed(r.it, r.qty, true)];
-      if (adm) row.push(Math.round(avg.get(r.it.id) || 0), Math.round(r.val));
+      row.push(Math.round(avg.get(r.it.id) || 0), Math.round(r.val));
       out.push(row);
     }
     exportSheet({ file: `أرصدة_${L === 'all' ? 'كل_المخازن' : locName(L)}_${today()}.xlsx`, title: `${CONFIG.title} — الأرصدة`,
       sub: [`المخزن: ${L === 'all' ? 'كل المخازن' : locName(L)}`, G ? `المجموعة: ${G}` : '', S.stockQ.trim() ? `البحث: ${S.stockQ.trim()}` : '', `بتاريخ: ${dt(Date.now())}`].filter(Boolean).join('   |   '),
-      headers: ['المادة', 'الرصيد', 'الوحدة', 'مفصّل', ...(adm ? ['متوسط الكلفة (د.ع)', 'القيمة (د.ع)'] : [])],
-      rows: out, qty: [1], money: adm ? [4, 5] : [], totals: adm ? { label: 'المجموع', cols: [5] } : null });
+      headers: ['المادة', 'الرصيد', 'الوحدة', 'مفصّل', 'متوسط الكلفة (د.ع)', 'القيمة (د.ع)'],
+      rows: out, qty: [1], money: [4, 5], totals: { label: 'المجموع', cols: [5] } });
   };
 }
 
@@ -673,7 +673,7 @@ function moveText(m) {
 function movesTable(list, withDelete) {
   if (!list.length) return `<div class="empty">ما اكو حركات</div>`;
   return `<div class="tbl-wrap"><table>
-    <tr><th>الوقت</th><th>النوع</th><th>المادة / الموظف</th><th class="num">الكمية</th><th>المكان</th><th>السبب / ملاحظة</th>${isAdmin() ? '<th class="num">الكلفة</th>' : ''}${withDelete ? '<th></th>' : ''}</tr>
+    <tr><th>الوقت</th><th>النوع</th><th>المادة / الموظف</th><th class="num">الكمية</th><th>المكان</th><th>السبب / ملاحظة</th><th class="num">الكلفة</th>${withDelete ? '<th></th>' : ''}</tr>
     ${list.map(m => `<tr ${m.deleted ? 'style="opacity:.55;text-decoration:line-through"' : ''}>
       ${dtCell(m.ts)}
       <td class="t-${m.type}"><b class="tl">${ico(TYPES[m.type]?.ic)}${TYPES[m.type]?.label || m.type}</b></td>
@@ -681,8 +681,8 @@ function movesTable(list, withDelete) {
       <td class="num">${N(m.qty, m.type === 'adjust')} ${esc(m.unit)}${m.factor > 1 ? `<div class="small muted">${N(m.baseQty)} ${esc(m.baseUnit)}</div>` : ''}</td>
       <td class="small">${esc(moveText(m))}</td>
       <td class="small">${esc([m.supplierName, m.reason, m.ref, m.note].filter(Boolean).join(' — '))}</td>
-      ${isAdmin() ? `<td class="num">${m.cost ? money(m.cost) : ''}</td>` : ''}
-      ${withDelete ? `<td style="white-space:nowrap">${m.invoiceId ? `<button class="link" data-inv="${m.invoiceId}">${ico('purchases')}الفاتورة</button>` : `${m.type !== 'adjust' ? `<button class="link" data-edit="${m.id}">${ico('edit')}تعديل</button>` : ''}${m.type !== 'adjust' || isAdmin() ? ` <button class="link bad" data-del="${m.id}">${ico('trash')}حذف</button>` : ''}`}</td>` : ''}
+      <td class="num">${m.cost ? money(m.cost) : ''}</td>
+      ${withDelete ? `<td style="white-space:nowrap">${m.invoiceId ? `<button class="link" data-inv="${m.invoiceId}">${ico('purchases')}الفاتورة</button>` : `${m.type !== 'adjust' ? `<button class="link" data-edit="${m.id}">${ico('edit')}تعديل</button>` : ''} <button class="link bad" data-del="${m.id}">${ico('trash')}حذف</button>`}</td>` : ''}
     </tr>`).join('')}
   </table></div>`;
 }
@@ -710,11 +710,10 @@ function vLog() {
   document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => deleteMove(S.moves.find(x => x.id === b.dataset.del)));
   document.querySelectorAll('[data-inv]').forEach(b => b.onclick = () => viewInvoice(S.invoices.find(x => x.id === b.dataset.inv)));
   $('#lg-csv').onclick = () => {
-    const adm = isAdmin();
     exportSheet({ file: `سجل_الحركات_${f.from}_${f.to}.xlsx`, title: `${CONFIG.title} — سجل الحركات`, sub: `من ${f.from} إلى ${f.to}   |   ${list.length} حركة`,
-      headers: ['التاريخ', 'النوع', 'المادة', 'الكمية', 'الوحدة', 'بالوحدة الأساسية', 'الوحدة الأساسية', 'من', 'إلى', ...(adm ? ['سعر الوحدة', 'الكلفة'] : []), 'السبب', 'الوصل', 'ملاحظة', 'الموظف'],
-      rows: list.map(m => [dt(m.ts), TYPES[m.type]?.label, mName(m), m.qty, m.unit, m.baseQty, m.baseUnit, m.fromLoc ? locName(m.fromLoc) : '', m.toLoc ? locName(m.toLoc) : '', ...(adm ? [m.price || '', m.cost || ''] : []), m.reason, m.ref, m.note, m.staffName]),
-      qty: [3, 5], money: adm ? [9, 10] : [], totals: adm ? { label: 'المجموع', cols: [10] } : null });
+      headers: ['التاريخ', 'النوع', 'المادة', 'الكمية', 'الوحدة', 'بالوحدة الأساسية', 'الوحدة الأساسية', 'من', 'إلى', 'سعر الوحدة', 'الكلفة', 'السبب', 'الوصل', 'ملاحظة', 'الموظف'],
+      rows: list.map(m => [dt(m.ts), TYPES[m.type]?.label, mName(m), m.qty, m.unit, m.baseQty, m.baseUnit, m.fromLoc ? locName(m.fromLoc) : '', m.toLoc ? locName(m.toLoc) : '', m.price || '', m.cost || '', m.reason, m.ref, m.note, m.staffName]),
+      qty: [3, 5], money: [9, 10], totals: { label: 'المجموع', cols: [10] } });
   };
 }
 
@@ -1526,15 +1525,15 @@ function vItemCard() {
     <p class="small muted" style="margin-top:-12px">${esc(grpOf(it))} — الوحدة الأساسية: ${esc(it.baseUnit)}${it.bigUnit ? ` — ${esc(it.bigUnit)} = ${fmt(packOf(it))} ${esc(it.baseUnit)}` : ''}${+it.minQty ? ` — حد الأمان: ${fmt(it.minQty)}` : ''}</p>
     <div class="kpis">
       <div class="kpi k-blue"><span class="ki">${ico('stock')}</span><div><div class="l">الرصيد الكلي</div><div class="v">${N(total)} <small class="small">${esc(it.baseUnit)}</small></div>${sub(detailed(it, total))}</div></div>
-      ${isAdmin() ? `<div class="kpi k-green"><span class="ki">${ico('wallet')}</span><div><div class="l">متوسط الكلفة / ${esc(it.baseUnit)}</div><div class="v">${M(avg)}</div>${sub(`القيمة: ${M(Math.max(total, 0) * avg)} د.ع`)}</div></div>` : ''}
+      <div class="kpi k-green"><span class="ki">${ico('wallet')}</span><div><div class="l">متوسط الكلفة / ${esc(it.baseUnit)}</div><div class="v">${M(avg)}</div>${sub(`القيمة: ${M(Math.max(total, 0) * avg)} د.ع`)}</div></div>
       <div class="kpi k-amber"><span class="ki">${ico('purchases')}</span><div><div class="l">آخر سعر شراء</div><div class="v">${buys[0] ? M(buys[0].invPrice ?? buys[0].price) : '—'}</div>${sub(buys[0] ? `لكل ${esc(buys[0].unit)} — ${esc(buys[0].supplierName || (buys[0].type === 'opening' ? 'رصيد افتتاحي' : 'وارد'))}` : '')}</div></div>
     </div>
     <div class="card"><h2>${ico('pin')} الرصيد بكل مخزن</h2>
       ${per.length ? `<div class="locs">${per.map(([l, v]) => `<div class="loc"><span class="ki">${ico('pin')}</span><span><b>${esc(l.name)}</b><span class="${v < -0.0005 ? 't-waste' : ''}">${N(v)} ${esc(it.baseUnit)}${detailed(it, v) ? ' — ' + detailed(it, v) : ''}</span></span></div>`).join('')}</div>` : '<div class="empty">ما اكو رصيد</div>'}
     </div>
     <div class="card"><h2>${ico('purchases')} آخر أسعار الشراء</h2>
-      ${buys.length ? `<div class="tbl-wrap"><table><tr><th>التاريخ</th><th>المورد / الوصل</th><th class="num">الكمية</th><th class="num">سعر الوحدة</th>${isAdmin() ? '<th class="num">الكلفة بعد التوزيع</th>' : ''}</tr>
-        ${buys.map(m => `<tr>${dtCell(m.ts)}<td><b>${esc(m.supplierName || (m.type === 'opening' ? 'رصيد افتتاحي' : 'وارد بدون فاتورة'))}</b>${sub(m.ref ? 'وصل ' + esc(m.ref) : '')}</td><td class="num">${N(m.qty)} ${esc(m.unit)}</td><td class="num">${M(m.invPrice ?? m.price)}</td>${isAdmin() ? `<td class="num">${M(m.cost)}</td>` : ''}</tr>`).join('')}
+      ${buys.length ? `<div class="tbl-wrap"><table><tr><th>التاريخ</th><th>المورد / الوصل</th><th class="num">الكمية</th><th class="num">سعر الوحدة</th><th class="num">الكلفة بعد التوزيع</th></tr>
+        ${buys.map(m => `<tr>${dtCell(m.ts)}<td><b>${esc(m.supplierName || (m.type === 'opening' ? 'رصيد افتتاحي' : 'وارد بدون فاتورة'))}</b>${sub(m.ref ? 'وصل ' + esc(m.ref) : '')}</td><td class="num">${N(m.qty)} ${esc(m.unit)}</td><td class="num">${M(m.invPrice ?? m.price)}</td><td class="num">${M(m.cost)}</td></tr>`).join('')}
       </table></div>` : '<div class="empty">ما اكو مشتريات</div>'}
     </div>
     <div class="card"><h2>${ico('log')} الحركات والرصيد بعد كل حركة</h2>
@@ -1545,10 +1544,10 @@ function vItemCard() {
     </div>`;
   $('#ic-back').onclick = () => { S.itemCard = null; vStock(); window.scrollTo(0, 0); };
   $('#ic-csv').onclick = () => exportSheet({ file: `بطاقة_مادة_${it.name}_${today()}.xlsx`, title: `${CONFIG.title} — بطاقة مادة: ${it.name}`,
-    sub: `الرصيد الكلي: ${fmt(total)} ${it.baseUnit}   |   ${per.map(([l, v]) => `${l.name}: ${fmt(v)}`).join('   |   ')}${isAdmin() ? `   |   متوسط الكلفة: ${money(avg)}` : ''}   |   بتاريخ: ${dt(Date.now())}`,
-    headers: ['التاريخ', 'النوع', 'المكان', 'داخل', 'طالع', 'الرصيد بعدها', 'الوحدة', 'المورد / السبب', 'الموظف', ...(isAdmin() ? ['الكلفة'] : [])],
-    rows: rows.map(r => [dt(r.m.ts), TYPES[r.m.type]?.label || r.m.type, moveText(r.m), r.inQ ? r3(r.inQ) : '', r.outQ ? r3(r.outQ) : '', r3(r.bal), it.baseUnit, [r.m.supplierName, r.m.reason, r.m.ref].filter(Boolean).join(' — '), r.m.staffName, ...(isAdmin() ? [r.m.cost || ''] : [])]),
-    qty: [3, 4, 5], money: isAdmin() ? [9] : [] });
+    sub: `الرصيد الكلي: ${fmt(total)} ${it.baseUnit}   |   ${per.map(([l, v]) => `${l.name}: ${fmt(v)}`).join('   |   ')}   |   متوسط الكلفة: ${money(avg)}   |   بتاريخ: ${dt(Date.now())}`,
+    headers: ['التاريخ', 'النوع', 'المكان', 'داخل', 'طالع', 'الرصيد بعدها', 'الوحدة', 'المورد / السبب', 'الموظف', 'الكلفة'],
+    rows: rows.map(r => [dt(r.m.ts), TYPES[r.m.type]?.label || r.m.type, moveText(r.m), r.inQ ? r3(r.inQ) : '', r.outQ ? r3(r.outQ) : '', r3(r.bal), it.baseUnit, [r.m.supplierName, r.m.reason, r.m.ref].filter(Boolean).join(' — '), r.m.staffName, r.m.cost || '']),
+    qty: [3, 4, 5], money: [9] });
 }
 
 /* ═════════════ Admin ═════════════ */
@@ -1662,7 +1661,7 @@ function locForm(l) {
 function admStaff() {
   const list = S.staff.slice().sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   $('#adm').innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="muted small">الموظف يسجل حركات ويشوف الأرصدة. المدير يقدر يجرد ويشوف التقارير والكلف ويحذف حركات.</span><button class="btn sm" id="ad-new">${ico('plus')}موظف</button></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="muted small">الموظف يشوف كل شي (الكلف، الجرد، التقارير، التعديلات) عدا شاشة الإدارة. التعديل والحذف للمدير وللموظف اللي عنده صلاحية «يعدّل ويحذف».</span><button class="btn sm" id="ad-new">${ico('plus')}موظف</button></div>
     <div class="tbl-wrap"><table><tr><th>الاسم</th><th>الصلاحية</th><th class="num">حركاته</th><th></th></tr>
     ${list.map(s => `<tr style="${s.active === false ? 'opacity:.5' : ''}"><td><b>${esc(s.name)}</b>${s.active === false ? ' <span class="badge b-muted">موقوف</span>' : ''}</td><td>${s.role === 'admin' ? '<span class="badge b-ok">مدير</span>' : 'موظف'}${s.role !== 'admin' && s.canEdit ? ' <span class="badge b-warn">يعدّل ويحذف</span>' : ''}</td><td class="num">${S.moves.filter(m => m.staffId === s.id).length}</td><td><button class="link" data-ed="${s.id}">تعديل</button></td></tr>`).join('')}
     </table></div>`;
