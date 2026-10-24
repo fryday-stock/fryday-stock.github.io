@@ -140,8 +140,26 @@ const ICONS = {
   adjust: '<path d="M12 3v18M7 21h10"/><path d="M4 7h16"/><path d="m4 7-2.5 6a3 3 0 0 0 5 0z"/><path d="m20 7-2.5 6a3 3 0 0 0 5 0z"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   folder: '<path d="M3 6a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/>',
-  check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>'
+  check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+  arrow: '<path d="M19 12H5"/><path d="m11 6-6 6 6 6"/>',
+  alert: '<path d="M12 3 2 20h20z"/><path d="M12 10v4M12 17h.01"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  pin: '<path d="M12 21s7-6.1 7-12a7 7 0 0 0-14 0c0 5.9 7 12 7 12z"/><circle cx="12" cy="9" r="2.5"/>',
+  wallet: '<rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M16 15h2"/><path d="M6 6V4h11v2"/>',
+  download: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+  upload: '<path d="M12 15V3"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  save: '<path d="m5 12 5 5 9-10"/>',
+  login: '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5"/>',
+  logout: '<path d="M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h5"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+  shield: '<path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/>',
+  trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 14h10l1-14"/>'
 };
+/* وصف بطاقات الحركات بالرئيسية (عرض فقط) */
+const ACT_DESC = { in: 'استلام بضاعة من المورد', out: 'صرف مواد للمطبخ أو الأقسام', transfer: 'نقل بين المخازن', waste: 'تسجيل مواد تالفة أو منتهية', return: 'إرجاع بضاعة للمورد' };
+const sub = t => t ? `<small class="sub">${t}</small>` : '';
+const dtCell = ts => { const [d, t] = dt(ts).split(' '); return `<td class="when"><b>${t}</b><small class="sub">${d}</small></td>`; };
 const ico = k => ICONS[k] ? `<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg>` : '';
 
 function toast(msg, bad = false) {
@@ -245,7 +263,7 @@ function renderDevice(err) {
     <h1>${esc(CONFIG.title)}</h1><p class="sub">هذا الجهاز غير مفعّل. يفعّله المدير مرة وحدة بكلمة سر المطعم.</p>
     <div class="field"><label>إيميل المطعم</label><input class="in" id="dv-e" dir="ltr" value="${esc(CONFIG.deviceEmail || '')}"></div>
     <div class="field"><label>كلمة سر المطعم</label><input class="in" id="dv-p" type="password" dir="ltr"></div>
-    <button class="btn big" id="dv-go">تفعيل الجهاز</button>
+    <button class="btn big" id="dv-go">${ico('shield')}تفعيل الجهاز</button>
     ${err ? `<p class="hint bad">${esc(err)}</p>` : ''}
   </div></div>`;
   const go = async () => {
@@ -303,16 +321,23 @@ function render() {
   if (!S.user) return renderLogin();
   const nav = NAV.filter(n => !n[3] || isAdmin());
   if (!nav.find(n => n[0] === S.view)) S.view = 'home';
+  const role = S.user.role === 'admin' ? 'مدير' : S.user.canEdit ? 'موظف (يعدّل)' : 'موظف';
+  const day = new Date().toLocaleDateString('ar-IQ-u-nu-latn', { weekday: 'long', day: 'numeric', month: 'long' });
   $('#app').innerHTML = `
-  <div class="mobile-head"><span><img class="mlogo" src="logo.png" alt="">${esc(CONFIG.title)}</span><span>${netBadge()}${esc(S.user.name)} <button id="lo2">خروج</button></span></div>
   <div class="shell">
     <aside class="side">
       <div class="brand"><img class="logo" src="logo.png" alt=""><div>${esc(CONFIG.title)}<small>نظام المخزن</small></div></div>
-      ${netBadge()}
       ${nav.map(n => `<button class="nav ${S.view === n[0] ? 'on' : ''}" data-go="${n[0]}"><span class="ic">${ico(n[1])}</span>${n[2]}</button>`).join('')}
-      <div class="me">${ico('user')} ${esc(S.user.name)} <span class="small">(${S.user.role === 'admin' ? 'مدير' : 'موظف'})</span><br><button class="btn ghost sm" id="lo">تسجيل خروج</button></div>
+      <div class="me"><button class="btn ghost sm" id="lo">${ico('logout')}تسجيل خروج</button></div>
     </aside>
-    <main class="main" id="view-root"></main>
+    <div class="content">
+      <header class="topbar">
+        <img class="tlogo" src="logo.png" alt="">
+        <div class="hello"><b>مرحباً، ${esc(S.user.name)}</b><small>${day} — خلّينا نشوف حالة المخزن اليوم</small></div>
+        <div class="who">${netBadge()}<div class="who-t"><b>${esc(S.user.name)}</b><small>${role}</small></div><span class="avatar">${esc((S.user.name || '؟').trim().charAt(0))}</span><button class="lo2" id="lo2" aria-label="تسجيل خروج">${ico('logout')}</button></div>
+      </header>
+      <main class="main" id="view-root"></main>
+    </div>
   </div>
   <nav class="bottom">${nav.map(n => `<button class="${S.view === n[0] ? 'on' : ''}" data-go="${n[0]}"><span class="ic">${ico(n[1])}</span>${n[2]}</button>`).join('')}</nav>`;
   document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
@@ -337,7 +362,7 @@ function renderSetup() {
     <h1>${esc(CONFIG.title)}</h1><p class="sub">أول تشغيل: أنشئ حساب المدير</p>
     <div class="field"><label>اسم المدير</label><input class="in" id="su-n" placeholder="مثلاً: أحمد"></div>
     <div class="field"><label>رمز سري (4 أرقام)</label><input class="in pin" id="su-p" inputmode="numeric" maxlength="6" type="password"></div>
-    <button class="btn big" id="su-go">إنشاء والدخول</button>
+    <button class="btn big" id="su-go">${ico('login')}إنشاء والدخول</button>
     <p class="hint">بعدها تضيف الموظفين وأماكن الخزن والمواد من شاشة الإدارة.</p>
   </div></div>`;
   $('#su-go').onclick = async () => {
@@ -357,7 +382,7 @@ function renderLogin() {
     <h1>${esc(CONFIG.title)}</h1><p class="sub">اختر اسمك واكتب رمزك</p>
     <div class="staff-grid">${staff.map(s => `<button data-id="${s.id}">${esc(s.name)}</button>`).join('')}</div>
     <div class="field"><input class="in pin" id="lg-p" inputmode="numeric" maxlength="6" type="password" placeholder="••••"></div>
-    <button class="btn big" id="lg-go">دخول</button>
+    <button class="btn big" id="lg-go">${ico('login')}دخول</button>
     <div style="text-align:center;margin-top:10px">${B.mode === 'local' ? '<span class="mode">وضع تجربة</span>' : ''}</div>
   </div></div>`;
   document.querySelectorAll('.staff-grid button').forEach(b => b.onclick = () => {
@@ -386,22 +411,24 @@ function vHome() {
   $('#view-root').innerHTML = `
     <div class="topline"><h1>الرئيسية</h1>${modeTag()}</div>
     <div class="actions">
-      ${['in', 'out', 'transfer', 'waste', 'return'].map(t => `<button class="act ${t}" data-t="${t}"><span class="ic">${ico(TYPES[t].ic)}</span>${TYPES[t].label}</button>`).join('')}
+      ${['in', 'out', 'transfer', 'waste', 'return'].map(t => `<button class="act ${t}" data-t="${t}"><span class="ic">${ico(TYPES[t].ic)}</span><span class="tx"><b>${TYPES[t].label}</b><small>${ACT_DESC[t]}</small></span><span class="bgi" aria-hidden="true">${ico(TYPES[t].ic)}</span><span class="goi" aria-hidden="true">${ico('arrow')}</span></button>`).join('')}
     </div>
-    <div class="kpis">
-      <div class="kpi"><div class="l">عدد المواد</div><div class="v">${items.length}</div></div>
-      ${isAdmin() ? `<div class="kpi"><div class="l">قيمة المخزون (د.ع)</div><div class="v">${M(value)}</div></div>` : ''}
-      <div class="kpi ${low.length ? 'warn' : ''}"><div class="l">مواد تحتاج طلب</div><div class="v">${low.length}</div></div>
-      <div class="kpi"><div class="l">حركات اليوم</div><div class="v">${todayMoves.length}</div></div>
+    <div class="overview ${isAdmin() ? '' : 'solo'}">
+      ${isAdmin() ? `<div class="valcard"><div class="vc-top"><span>قيمة المخزون</span><img src="logo.png" alt=""></div><div class="vc-num">${M(value)}<small>د.ع</small></div><div class="vc-foot"><span>${items.length} مادة</span><span>${locs.length} أماكن خزن</span></div></div>` : ''}
+      <div class="kpis">
+        <div class="kpi k-blue"><span class="ki">${ico('stock')}</span><div><div class="l">عدد المواد</div><div class="v">${items.length}</div></div></div>
+        <div class="kpi k-amber ${low.length ? 'warn' : ''}"><span class="ki">${ico('alert')}</span><div><div class="l">مواد تحتاج طلب</div><div class="v">${low.length}</div></div></div>
+        <div class="kpi k-green"><span class="ki">${ico('clock')}</span><div><div class="l">حركات اليوم</div><div class="v">${todayMoves.length}</div></div></div>
+      </div>
     </div>
     <div class="two">
       <div class="card"><h2>أماكن الخزن</h2>
-        ${locs.length ? `<div class="locs">${locs.map(l => `<button class="loc" data-loc="${l.id}"><b>${esc(l.name)}</b><span>${locCount(l.id)} مادة متوفرة</span></button>`).join('')}</div>`
+        ${locs.length ? `<div class="locs">${locs.map(l => `<button class="loc" data-loc="${l.id}"><span class="ki">${ico('pin')}</span><span><b>${esc(l.name)}</b><span>${locCount(l.id)} مادة متوفرة</span></span></button>`).join('')}</div>`
         : `<div class="empty">ما اكو أماكن خزن بعد. ${isAdmin() ? 'أضفها من الإدارة.' : ''}</div>`}
       </div>
       <div class="card"><h2>تحتاج طلب</h2>
         ${low.length ? `<div class="tbl-wrap"><table><tr><th>المادة</th><th class="num">الرصيد</th><th>الحالة</th></tr>
-          ${low.slice(0, 15).map(it => { const q = tot.get(it.id) || 0, st = status(it, q); return `<tr><td>${esc(it.name)}</td><td class="num">${N(q)} ${esc(it.baseUnit)}</td><td><span class="badge ${st[1]}">${st[0]}</span></td></tr>`; }).join('')}
+          ${low.slice(0, 15).map(it => { const q = tot.get(it.id) || 0, st = status(it, q); return `<tr><td><b>${esc(it.name)}</b>${sub(esc(grpOf(it)))}</td><td class="num">${N(q)} ${esc(it.baseUnit)}</td><td><span class="badge ${st[1]}">${st[0]}</span></td></tr>`; }).join('')}
         </table></div>` : `<div class="empty">${ico('check')} كل المواد كافية</div>`}
       </div>
     </div>
@@ -454,7 +481,7 @@ function vMove() {
       ${reasons ? `<div class="field"><label>السبب <span class="req">*</span></label><select class="in" id="mv-reason"><option value="">— اختر —</option>${reasons.map(r => `<option ${mv.reason === r ? 'selected' : ''}>${r}</option>`).join('')}</select></div>` : ''}
       <div class="field"><label>ملاحظة</label><input class="in" id="mv-note" value="${esc(mv.note)}"></div>
       <div class="hint" style="margin-bottom:10px">الموظف: <b>${esc(S.user.name)}</b> — الوقت يتسجل تلقائياً</div>
-      <button class="btn big" id="mv-save">تأكيد ${TYPES[mv.type].label}</button>
+      <button class="btn big t-${mv.type}" id="mv-save">${ico('save')}تأكيد ${TYPES[mv.type].label}</button>
     </div>`;
 
   document.querySelectorAll('[data-type]').forEach(b => b.onclick = () => { S.mv.type = b.dataset.type; S.mv.reason = ''; vMove(); });
@@ -568,7 +595,7 @@ function vStock() {
   const byUnit = new Map(); rows.forEach(r => byUnit.set(r.it.baseUnit, (byUnit.get(r.it.baseUnit) || 0) + r.qty));
   const totVal = rows.reduce((a, r) => a + r.val, 0);
   const per = it => locs.map(l => [l, bal.get(it.id + '|' + l.id) || 0]).filter(x => Math.abs(x[1]) > 0.0005);
-  const cols = 4 + (L === 'all' ? 2 : 0) + (isAdmin() ? 1 : 0);
+  const cols = 3 + (L === 'all' ? 2 : 0) + (isAdmin() ? 1 : 0);
   let body = '', lastG = null;
   for (const r of rows) {
     if (r.g !== lastG) {
@@ -577,13 +604,13 @@ function vStock() {
     }
     const { it, qty } = r;
     const st = L === 'all' ? status(it, qty) : (qty < -0.0005 ? ['رصيد سالب', 'b-bad'] : Math.abs(qty) < 0.0005 ? ['فارغ', 'b-muted'] : ['متوفر', 'b-ok']);
-    body += `<tr><td><b>${esc(it.name)}</b></td><td class="num ${qty < -0.0005 ? 'neg' : ''}">${N(qty)} ${esc(it.baseUnit)}</td><td class="small">${detailed(it, qty)}</td>
+    body += `<tr><td><b>${esc(it.name)}</b>${sub(detailed(it, qty))}</td><td class="num ${qty < -0.0005 ? 'neg' : ''}">${N(qty)} ${esc(it.baseUnit)}</td>
       ${L === 'all' ? `<td class="small muted">${per(it).map(([l, v]) => `${esc(l.name)}: ${N(v)}`).join(' · ')}</td><td class="num">${+it.minQty ? N(it.minQty) : '—'}</td>` : ''}
       ${isAdmin() ? `<td class="num">${M(r.val)}</td>` : ''}
       <td><span class="badge ${st[1]}">${st[0]}</span></td></tr>`;
   }
   $('#view-root').innerHTML = `
-    <div class="topline"><h1>الأرصدة</h1><button class="btn ghost sm" id="sk-csv">تصدير</button></div>
+    <div class="topline"><h1>الأرصدة</h1><button class="btn sm" id="sk-csv">${ico('download')}تصدير</button></div>
     <div class="filters">
       <input class="in" id="sk-q" placeholder="بحث باسم المادة أو المجموعة…" value="${esc(S.stockQ)}" style="flex:1;min-width:220px">
       <select class="in" id="sk-g"><option value="">كل المجموعات</option>${groups.map(g => `<option ${G === g ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
@@ -595,7 +622,7 @@ function vStock() {
       ${isAdmin() ? `<span><span class="muted small">القيمة</span><b>${M(totVal)} د.ع</b></span>` : ''}
     </div>` : ''}
     <div class="card"><div class="tbl-wrap">${rows.length ? `<table>
-      <tr><th>المادة</th><th class="num">الرصيد</th><th>مفصّل</th>${L === 'all' ? '<th>التوزيع على الأماكن</th><th class="num">حد الأمان</th>' : ''}${isAdmin() ? '<th class="num">القيمة (د.ع)</th>' : ''}<th>الحالة</th></tr>
+      <tr><th>المادة</th><th class="num">الرصيد</th>${L === 'all' ? '<th>التوزيع على الأماكن</th><th class="num">حد الأمان</th>' : ''}${isAdmin() ? '<th class="num">القيمة (د.ع)</th>' : ''}<th>الحالة</th></tr>
       ${body}
     </table>` : `<div class="empty">ما اكو مواد ${q ? 'بهذا البحث' : G ? 'بهذي المجموعة' : L !== 'all' ? 'بهذا المكان' : 'بعد'}</div>`}</div></div>`;
   document.querySelectorAll('[data-l]').forEach(b => b.onclick = () => { S.stockLoc = b.dataset.l; vStock(); });
@@ -625,17 +652,16 @@ function moveText(m) {
 function movesTable(list, withDelete) {
   if (!list.length) return `<div class="empty">ما اكو حركات</div>`;
   return `<div class="tbl-wrap"><table>
-    <tr><th>الوقت</th><th>النوع</th><th>المادة</th><th class="num">الكمية</th><th>المكان</th><th>السبب / ملاحظة</th><th>الموظف</th>${isAdmin() ? '<th class="num">الكلفة</th>' : ''}${withDelete ? '<th></th>' : ''}</tr>
+    <tr><th>الوقت</th><th>النوع</th><th>المادة / الموظف</th><th class="num">الكمية</th><th>المكان</th><th>السبب / ملاحظة</th>${isAdmin() ? '<th class="num">الكلفة</th>' : ''}${withDelete ? '<th></th>' : ''}</tr>
     ${list.map(m => `<tr ${m.deleted ? 'style="opacity:.55;text-decoration:line-through"' : ''}>
-      <td class="small">${dt(m.ts)}</td>
+      ${dtCell(m.ts)}
       <td class="t-${m.type}"><b class="tl">${ico(TYPES[m.type]?.ic)}${TYPES[m.type]?.label || m.type}</b></td>
-      <td>${esc(mName(m))}${m.editCount ? ' <span class="badge b-warn" title="انعدلت">معدّلة</span>' : ''}</td>
+      <td><b>${esc(mName(m))}</b>${m.editCount ? ' <span class="badge b-warn" title="انعدلت">معدّلة</span>' : ''}${sub(esc(m.staffName))}</td>
       <td class="num">${N(m.qty, m.type === 'adjust')} ${esc(m.unit)}${m.factor > 1 ? `<div class="small muted">${N(m.baseQty)} ${esc(m.baseUnit)}</div>` : ''}</td>
       <td class="small">${esc(moveText(m))}</td>
       <td class="small">${esc([m.reason, m.ref, m.note].filter(Boolean).join(' — '))}</td>
-      <td class="small">${esc(m.staffName)}</td>
       ${isAdmin() ? `<td class="num">${m.cost ? money(m.cost) : ''}</td>` : ''}
-      ${withDelete ? `<td style="white-space:nowrap">${m.type !== 'adjust' ? `<button class="link" data-edit="${m.id}">تعديل</button>` : ''}${m.type !== 'adjust' || isAdmin() ? ` <button class="link bad" data-del="${m.id}">حذف</button>` : ''}</td>` : ''}
+      ${withDelete ? `<td style="white-space:nowrap">${m.type !== 'adjust' ? `<button class="link" data-edit="${m.id}">${ico('edit')}تعديل</button>` : ''}${m.type !== 'adjust' || isAdmin() ? ` <button class="link bad" data-del="${m.id}">${ico('trash')}حذف</button>` : ''}</td>` : ''}
     </tr>`).join('')}
   </table></div>`;
 }
@@ -644,7 +670,7 @@ function vLog() {
   const list = S.moves.filter(m => m.ts >= dayStartTs(f.from) && m.ts <= dayEndTs(f.to)
     && (!f.type || m.type === f.type) && (!f.staff || m.staffId === f.staff) && (!f.q || mName(m).includes(f.q))).reverse();
   $('#view-root').innerHTML = `
-    <div class="topline"><h1>سجل الحركات</h1><button class="btn ghost sm" id="lg-csv">تصدير</button></div>
+    <div class="topline"><h1>سجل الحركات</h1><button class="btn sm" id="lg-csv">${ico('download')}تصدير</button></div>
     <div class="card">
       <div class="filters">
         <label class="small">من<br><input class="in" type="date" id="f-from" value="${f.from}"></label>
@@ -696,7 +722,7 @@ function editMove(m) {
     ${reasons ? `<div class="field"><label>السبب</label><select class="in" id="e-rs">${reasons.map(r => `<option ${m.reason === r ? 'selected' : ''}>${r}</option>`).join('')}</select></div>` : ''}
     <div class="field"><label>ملاحظة</label><input class="in" id="e-n" value="${esc(m.note)}"></div>
     <div class="field"><label>سبب التعديل <span class="req">*</span></label><input class="in" id="e-why" placeholder="مثلاً: الكمية انكتبت غلط"></div>
-    <div class="foot"><button class="btn" id="e-s">حفظ التعديل</button><button class="btn ghost" id="e-c">إلغاء</button></div>`,
+    <div class="foot"><button class="btn" id="e-s">${ico('save')}حفظ التعديل</button><button class="btn ghost" id="e-c">إلغاء</button></div>`,
     (md, close) => {
       md.querySelector('#e-c').onclick = close;
       md.querySelector('#e-s').onclick = async () => {
@@ -760,14 +786,14 @@ function vAudit() {
     <div class="card"><div class="tbl-wrap">
     ${a.tab === 'edit' ? (edits.length ? `<table>
       <tr><th>وقت التعديل</th><th>منو عدّل</th><th>الحركة</th><th>شنو تغيّر</th><th>السبب</th><th>سجّلها أصلاً</th></tr>
-      ${edits.map(x => `<tr><td class="small">${dt(x.ts)}</td><td><b>${esc(x.by)}</b></td>
+      ${edits.map(x => `<tr>${dtCell(x.ts)}<td><b>${esc(x.by)}</b></td>
         <td class="t-${x.moveType}"><b>${TYPES[x.moveType]?.label || ''}</b> — ${esc(x.itemName)}</td>
         <td class="small">${(x.changed || []).map(k => `${AUD_FIELDS[k]}: <span style="text-decoration:line-through;color:var(--bad)">${esc(audVal(k, x.before?.[k]))}</span> ← <b>${esc(audVal(k, x.after?.[k]))}</b>`).join('<br>')}</td>
         <td class="small">${esc(x.why)}</td><td class="small">${esc(x.moveStaff)}<br><span class="muted">${dt(x.moveTs)}</span></td></tr>`).join('')}
     </table>` : '<div class="empty">ما اكو تعديلات بهذي الفترة</div>')
     : (dels.length ? `<table>
       <tr><th>وقت الحذف</th><th>منو حذف</th><th>الحركة المحذوفة</th><th class="num">الكمية</th><th>المكان</th><th>السبب</th><th>سجّلها أصلاً</th></tr>
-      ${dels.map(x => `<tr><td class="small">${dt(x.ts)}</td><td><b>${esc(x.by)}</b></td>
+      ${dels.map(x => `<tr>${dtCell(x.ts)}<td><b>${esc(x.by)}</b></td>
         <td class="t-${x.moveType}"><b>${TYPES[x.moveType]?.label || ''}</b> — ${esc(x.itemName)}</td>
         <td class="num">${N(x.before?.qty)} ${esc(x.before?.unit)}</td><td class="small">${esc(where(x.moveType, x.before || {}))}</td>
         <td class="small">${esc(x.why)}</td><td class="small">${esc(x.moveStaff)}<br><span class="muted">${dt(x.moveTs)}</span></td></tr>`).join('')}
@@ -795,20 +821,20 @@ function vStocktake() {
       ${items.length ? `<div class="tbl-wrap"><table>
         <tr><th>المادة</th><th class="num">الدفتري</th><th>العدد: وحدة كبيرة</th><th>العدد: وحدة أساسية</th><th class="num">الفعلي</th><th class="num">الفرق</th><th class="num">قيمة الفرق</th></tr>
         ${items.map(it => { const c = S.st.counts[it.id] || {}; return `<tr data-row="${it.id}">
-          <td><b>${esc(it.name)}</b></td>
+          <td><b>${esc(it.name)}</b>${sub(esc(grpOf(it)))}</td>
           <td class="num">${N(bal.get(it.id + '|' + L) || 0)} ${esc(it.baseUnit)}</td>
           <td>${packOf(it) > 1 ? `<input class="in" style="width:90px" type="number" inputmode="decimal" min="0" step="any" data-big="${it.id}" value="${esc(c.big ?? '')}"> <span class="small muted">${esc(it.bigUnit)} (${fmt(packOf(it))})</span>` : '<span class="muted">—</span>'}</td>
           <td><input class="in" style="width:90px" type="number" inputmode="decimal" min="0" step="any" data-small="${it.id}" value="${esc(c.small ?? '')}"> <span class="small muted">${esc(it.baseUnit)}</span></td>
           <td class="num" data-cnt="${it.id}"></td><td class="num" data-var="${it.id}"></td><td class="num" data-val="${it.id}"></td></tr>`; }).join('')}
       </table></div>
       <div style="display:flex;gap:12px;align-items:center;margin-top:14px;flex-wrap:wrap">
-        <button class="btn" id="st-save">حفظ الجرد وتسوية الأرصدة</button>
+        <button class="btn" id="st-save">${ico('save')}حفظ الجرد وتسوية الأرصدة</button>
         <span id="st-sum" class="small"></span>
       </div>` : `<div class="empty">ما اكو مواد بهذا المكان بعد.</div>`}
     </div>` : `<div class="card empty">أضف أماكن الخزن أولاً من الإدارة.</div>`}
     <div class="card"><h2>جرودات سابقة</h2>
       ${past.length ? `<div class="tbl-wrap"><table><tr><th>التاريخ</th><th>المكان</th><th class="num">مواد مجرودة</th><th class="num">مواد بيها فرق</th><th class="num">قيمة العجز</th><th class="num">قيمة الزيادة</th><th>بواسطة</th></tr>
-        ${past.map(s => `<tr><td class="small">${dt(s.ts)}</td><td>${esc(locName(s.locId))}</td><td class="num">${s.counted}</td><td class="num">${s.diffs}</td><td class="num neg">${M(s.shortValue)}</td><td class="num">${M(s.overValue)}</td><td class="small">${esc(s.staffName)}</td></tr>`).join('')}
+        ${past.map(s => `<tr>${dtCell(s.ts)}<td>${esc(locName(s.locId))}</td><td class="num">${s.counted}</td><td class="num">${s.diffs}</td><td class="num neg">${M(s.shortValue)}</td><td class="num">${M(s.overValue)}</td><td class="small">${esc(s.staffName)}</td></tr>`).join('')}
       </table></div>` : `<div class="empty">ما اكو جرد سابق</div>`}
     </div>`;
   document.querySelectorAll('[data-l]').forEach(b => b.onclick = async () => {
@@ -902,7 +928,7 @@ function vReports() {
   const closeVal = rows.reduce((a, r) => a + Math.max(r.close, 0) * r.avg, 0);
   $('#view-root').innerHTML = `
     <div class="topline"><h1>التقرير الشهري</h1>
-      <div style="display:flex;gap:8px"><input class="in" type="month" id="rp-m" value="${S.rep.month}" style="width:170px"><button class="btn ghost sm" id="rp-csv">تصدير</button></div></div>
+      <div style="display:flex;gap:8px"><input class="in" type="month" id="rp-m" value="${S.rep.month}" style="width:170px"><button class="btn sm" id="rp-csv">${ico('download')}تصدير</button></div></div>
     <div class="kpis">
       <div class="kpi"><div class="l">المشتريات</div><div class="v">${M(purchases)}</div></div>
       <div class="kpi"><div class="l">كلفة المصروف</div><div class="v">${M(consumption)}</div></div>
@@ -911,8 +937,8 @@ function vReports() {
       <div class="kpi"><div class="l">قيمة المخزون آخر الشهر</div><div class="v">${M(closeVal)}</div></div>
     </div>
     <div class="card"><div class="tbl-wrap">${rows.length ? `<table>
-      <tr><th>المادة</th><th>الوحدة</th><th class="num">أول المدة</th><th class="num">الوارد</th><th class="num">المصروف</th><th class="num">التالف</th><th class="num">المرتجع</th><th class="num">تسوية الجرد</th><th class="num">آخر المدة</th><th class="num">متوسط الكلفة</th><th class="num">كلفة المصروف</th></tr>
-      ${rows.map(r => `<tr><td><b>${esc(r.it.name)}</b></td><td class="small">${esc(r.it.baseUnit)}</td><td class="num">${N(r.open)}</td><td class="num">${N(r.in)}</td><td class="num">${N(r.out)}</td><td class="num">${N(r.waste)}</td><td class="num">${N(r.return)}</td><td class="num ${r.adjust < 0 ? 'neg' : ''}">${N(r.adjust)}</td><td class="num"><b>${N(r.close)}</b></td><td class="num">${M(r.avg)}</td><td class="num">${M(r.out * r.avg)}</td></tr>`).join('')}
+      <tr><th>المادة</th><th class="num">أول المدة</th><th class="num">الوارد</th><th class="num">المصروف</th><th class="num">التالف</th><th class="num">المرتجع</th><th class="num">تسوية الجرد</th><th class="num">آخر المدة</th><th class="num">متوسط الكلفة</th><th class="num">كلفة المصروف</th></tr>
+      ${rows.map(r => `<tr><td><b>${esc(r.it.name)}</b>${sub(esc(r.it.baseUnit + ' — ' + grpOf(r.it)))}</td><td class="num">${N(r.open)}</td><td class="num">${N(r.in)}</td><td class="num">${N(r.out)}</td><td class="num">${N(r.waste)}</td><td class="num">${N(r.return)}</td><td class="num ${r.adjust < 0 ? 'neg' : ''}">${N(r.adjust)}</td><td class="num"><b>${N(r.close)}</b></td><td class="num">${M(r.avg)}</td><td class="num">${M(r.out * r.avg)}</td></tr>`).join('')}
     </table>` : `<div class="empty">ما اكو حركات بهذا الشهر</div>`}</div>
     <p class="hint">النقل بين الأماكن ما يأثر على التقرير لأن المادة باقية بالمخزن. متوسط الكلفة = كل كلفة المشتريات ÷ كل الكميات الواردة.</p></div>`;
   $('#rp-m').onchange = e => { S.rep.month = e.target.value || today().slice(0, 7); vReports(); };
@@ -941,9 +967,9 @@ const used = (field, id) => S.moves.some(m => m[field] === id);
 function admItems() {
   const list = S.items.slice().sort((a, b) => (a.active === false) - (b.active === false) || (a.group || 'ي').localeCompare(b.group || 'ي', 'ar') || a.name.localeCompare(b.name, 'ar'));
   $('#adm').innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="muted small">${list.length} مادة</span><button class="btn sm" id="ad-new">+ مادة جديدة</button></div>
-    ${list.length ? `<div class="tbl-wrap"><table><tr><th>المادة</th><th>المجموعة</th><th>الوحدة الأساسية</th><th>الوحدة الكبيرة</th><th class="num">التعبئة</th><th class="num">حد الأمان</th><th></th></tr>
-    ${list.map(i => `<tr style="${i.active === false ? 'opacity:.5' : ''}"><td><b>${esc(i.name)}</b>${i.active === false ? ' <span class="badge b-muted">موقوفة</span>' : ''}</td><td class="small">${esc(i.group || '—')}</td><td>${esc(i.baseUnit)}</td><td>${esc(i.bigUnit || '—')}</td><td class="num">${i.bigUnit ? N(i.pack) : '—'}</td><td class="num">${+i.minQty ? N(i.minQty) : '—'}</td><td><button class="link" data-ed="${i.id}">تعديل</button></td></tr>`).join('')}
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="muted small">${list.length} مادة</span><button class="btn sm" id="ad-new">${ico('plus')}مادة جديدة</button></div>
+    ${list.length ? `<div class="tbl-wrap"><table><tr><th>المادة / المجموعة</th><th>الوحدة الأساسية</th><th>الوحدة الكبيرة</th><th class="num">التعبئة</th><th class="num">حد الأمان</th><th></th></tr>
+    ${list.map(i => `<tr style="${i.active === false ? 'opacity:.5' : ''}"><td><b>${esc(i.name)}</b>${i.active === false ? ' <span class="badge b-muted">موقوفة</span>' : ''}${sub(esc(i.group || 'بدون مجموعة'))}</td><td>${esc(i.baseUnit)}</td><td>${esc(i.bigUnit || '—')}</td><td class="num">${i.bigUnit ? N(i.pack) : '—'}</td><td class="num">${+i.minQty ? N(i.minQty) : '—'}</td><td><button class="link" data-ed="${i.id}">تعديل</button></td></tr>`).join('')}
     </table></div>` : `<div class="empty">ما اكو مواد. ابدي بإضافة أول مادة.</div>`}`;
   $('#ad-new').onclick = () => itemForm();
   document.querySelectorAll('[data-ed]').forEach(b => b.onclick = () => itemForm(itemById(b.dataset.ed)));
@@ -966,7 +992,7 @@ function itemForm(it) {
       <div class="field"><label>التعبئة</label><input class="in" id="i-p" type="number" min="0" step="any" value="${esc(it?.pack ?? '')}" placeholder="كم أساسية بالكبيرة"></div>
     </div>
     ${hasMoves ? '<p class="hint bad">انتبه: تغيير الوحدة أو التعبئة ما يغيّر الحركات المسجلة سابقاً.</p>' : ''}
-    <div class="foot"><button class="btn" id="i-s">حفظ</button><button class="btn ghost" id="i-c">إلغاء</button>
+    <div class="foot"><button class="btn" id="i-s">${ico('save')}حفظ</button><button class="btn ghost" id="i-c">إلغاء</button>
     ${it ? `<button class="btn ghost" id="i-x" style="margin-right:auto">${it.active === false ? 'إعادة تفعيل' : hasMoves ? 'إيقاف' : 'حذف'}</button>` : ''}</div>`,
     (m, close) => {
       m.querySelector('#i-c').onclick = close;
@@ -994,7 +1020,7 @@ function itemForm(it) {
 function admLocs() {
   const list = S.locations.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
   $('#adm').innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="muted small">مثلاً: المخزن الرئيسي، البراد، الفريزر، رف المطبخ</span><button class="btn sm" id="ad-new">+ مكان جديد</button></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="muted small">مثلاً: المخزن الرئيسي، البراد، الفريزر، رف المطبخ</span><button class="btn sm" id="ad-new">${ico('plus')}مكان جديد</button></div>
     ${list.length ? `<div class="tbl-wrap"><table><tr><th>المكان</th><th class="num">الترتيب</th><th></th></tr>
     ${list.map(l => `<tr style="${l.active === false ? 'opacity:.5' : ''}"><td><b>${esc(l.name)}</b>${l.active === false ? ' <span class="badge b-muted">موقوف</span>' : ''}</td><td class="num">${l.order ?? 0}</td><td><button class="link" data-ed="${l.id}">تعديل</button></td></tr>`).join('')}
     </table></div>` : `<div class="empty">ما اكو أماكن. أضف أول مكان خزن.</div>`}`;
@@ -1006,7 +1032,7 @@ function locForm(l) {
   modal(`<h2>${l ? 'تعديل مكان' : 'مكان خزن جديد'}</h2>
     <div class="field"><label>اسم المكان <span class="req">*</span></label><input class="in" id="l-n" value="${esc(l?.name)}"></div>
     <div class="field"><label>الترتيب بالقوائم</label><input class="in" id="l-o" type="number" value="${esc(l?.order ?? S.locations.length + 1)}"></div>
-    <div class="foot"><button class="btn" id="l-s">حفظ</button><button class="btn ghost" id="l-c">إلغاء</button>
+    <div class="foot"><button class="btn" id="l-s">${ico('save')}حفظ</button><button class="btn ghost" id="l-c">إلغاء</button>
     ${l ? `<button class="btn ghost" id="l-x" style="margin-right:auto">${l.active === false ? 'إعادة تفعيل' : hasMoves ? 'إيقاف' : 'حذف'}</button>` : ''}</div>`,
     (m, close) => {
       m.querySelector('#l-c').onclick = close;
@@ -1032,7 +1058,7 @@ function locForm(l) {
 function admStaff() {
   const list = S.staff.slice().sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   $('#adm').innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="muted small">الموظف يسجل حركات ويشوف الأرصدة. المدير يقدر يجرد ويشوف التقارير والكلف ويحذف حركات.</span><button class="btn sm" id="ad-new">+ موظف</button></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="muted small">الموظف يسجل حركات ويشوف الأرصدة. المدير يقدر يجرد ويشوف التقارير والكلف ويحذف حركات.</span><button class="btn sm" id="ad-new">${ico('plus')}موظف</button></div>
     <div class="tbl-wrap"><table><tr><th>الاسم</th><th>الصلاحية</th><th class="num">حركاته</th><th></th></tr>
     ${list.map(s => `<tr style="${s.active === false ? 'opacity:.5' : ''}"><td><b>${esc(s.name)}</b>${s.active === false ? ' <span class="badge b-muted">موقوف</span>' : ''}</td><td>${s.role === 'admin' ? '<span class="badge b-ok">مدير</span>' : 'موظف'}${s.role !== 'admin' && s.canEdit ? ' <span class="badge b-warn">يعدّل ويحذف</span>' : ''}</td><td class="num">${S.moves.filter(m => m.staffId === s.id).length}</td><td><button class="link" data-ed="${s.id}">تعديل</button></td></tr>`).join('')}
     </table></div>`;
@@ -1048,7 +1074,7 @@ function staffForm(s) {
       <div class="field"><label>الصلاحية</label><select class="in" id="s-r"><option value="staff">موظف</option><option value="admin" ${s?.role === 'admin' ? 'selected' : ''}>مدير</option></select></div>
     </div>
     <label class="field" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="s-e" ${s?.canEdit ? 'checked' : ''}> يسمح له بتعديل وحذف الحركات <span class="small muted">(المدير مسموح دائماً)</span></label>
-    <div class="foot"><button class="btn" id="s-s">حفظ</button><button class="btn ghost" id="s-c">إلغاء</button>
+    <div class="foot"><button class="btn" id="s-s">${ico('save')}حفظ</button><button class="btn ghost" id="s-c">إلغاء</button>
     ${s && s.id !== S.user.id ? `<button class="btn ghost" id="s-x" style="margin-right:auto">${s.active === false ? 'إعادة تفعيل' : 'إيقاف'}</button>` : ''}</div>`,
     (m, close) => {
       m.querySelector('#s-c').onclick = close;
@@ -1209,12 +1235,12 @@ function admSystem() {
     <h2>استيراد من إكسل</h2>
     <p class="small muted">ترفع ملف إكسل بيه المواد وأرصدتها (حسب القالب)، والنظام يضيف المخازن والمواد والأرصدة الافتتاحية مرة وحدة. المواد الموجودة مسبقاً بنفس الاسم ما تتكرر.</p>
     <input type="file" id="imp-f" accept=".xlsx,.xls,.csv" hidden>
-    <button class="btn" id="imp">اختيار ملف الإكسل</button>
+    <button class="btn" id="imp">${ico('upload')}اختيار ملف الإكسل</button>
     <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
     <h2>النسخة الاحتياطية</h2>
     <p class="small muted">ينزّل ملف بيه كل البيانات (المواد، الأماكن، الموظفين، كل الحركات، الجرودات). احتفظ بيه بمكان آمن. يُنصح كل أسبوع أو كل شهر.</p>
     <p class="small">آخر نسخة من هذا الجهاز: <b>${last ? dt(+last) : 'ما اكو'}</b></p>
-    <button class="btn" id="bk">تنزيل نسخة احتياطية</button>
+    <button class="btn" id="bk">${ico('download')}تنزيل نسخة احتياطية</button>
     <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
     <h2>هذا الجهاز</h2>
     <p class="small muted">إلغاء التفعيل يخلي هذا الجهاز يحتاج كلمة سر المطعم مرة ثانية. استخدمه إذا الجهاز راح يطلع من المطعم أو ضاع.</p>
