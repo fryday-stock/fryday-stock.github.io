@@ -313,6 +313,40 @@ tr.grp svg.i{opacity:.8;margin-inline-end:2px}
 #toast.show{opacity:1;transform:translate(-50%,0)}
 #toast.bad{background:var(--bad)}
 
+/* ═════ Purchases ═════ */
+.tabs button{display:inline-flex;align-items:center;gap:8px}
+.tabs button svg.i{width:18px;height:18px}
+#adm .card{border:0;box-shadow:none;padding:0;margin:0}
+.card h2 svg.i{color:var(--g2);margin-inline-end:4px}
+/* invoice lines */
+.iline{display:grid;grid-template-columns:minmax(0,2.4fr) minmax(0,1.1fr) minmax(0,1fr) minmax(0,1.1fr) minmax(0,1.1fr) 48px;gap:10px;align-items:end;padding:12px 12px 0;margin-bottom:10px;border:1px solid var(--line);border-inline-start:5px solid var(--in2);border-radius:var(--r-sm);background:#fbfdff}
+.iline .field{margin-bottom:12px}
+.il-sum{min-height:var(--tap);display:flex;flex-direction:column;justify-content:center;font-weight:800;font-size:16px;font-variant-numeric:tabular-nums}
+.il-del{width:48px;height:48px;margin-bottom:12px;display:grid;place-items:center;border:1.5px solid var(--line-2);border-radius:var(--r-sm);background:#fff;color:var(--bad)}
+.il-del:hover{background:var(--bad-soft);border-color:var(--bad)}
+.il-del:disabled{opacity:.35;cursor:not-allowed}
+.il-del svg.i{width:20px;height:20px}
+@media (max-width:900px){
+  .iline{grid-template-columns:repeat(2,minmax(0,1fr)) 48px}
+  .iline .il-item{grid-column:1 / -1}
+  .iline .il-tot{grid-column:span 2}
+}
+@media (max-width:600px){.iline{grid-template-columns:repeat(2,minmax(0,1fr))}.iline .il-tot{grid-column:1}.il-del{justify-self:end}}
+/* totals box */
+.totbox .tl-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px dashed var(--line);font-size:15px}
+.totbox .tl-row b{font-variant-numeric:tabular-nums}
+.totbox .tl-row.grand{margin:8px 0;padding:14px 16px;border:0;border-radius:var(--r-sm);color:#fff;background:linear-gradient(110deg,var(--g1),var(--g2));font-size:17px}
+.totbox .tl-row.grand b{font-size:24px}
+.totbox .tl-row.grand small{font-size:13px;opacity:.85}
+.totbox .tl-row.due b{color:var(--bad)}
+.seg.paymode{grid-template-columns:repeat(auto-fit,minmax(110px,1fr))}
+@media (max-width:600px){.seg.paymode{grid-template-columns:repeat(3,minmax(0,1fr))}.seg.paymode button{min-height:52px}}
+.btn.sm.t-in{--c1:var(--in1);--c2:var(--in2);color:#fff}
+/* item name → item card */
+.item-link{border:0;background:none;padding:0;font:inherit;font-weight:800;color:var(--pri);text-align:right;cursor:pointer;min-height:32px;text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--pri) 30%,transparent);text-underline-offset:4px}
+.item-link:hover{color:var(--g1);text-decoration-color:currentColor}
+.loc span span.t-waste{color:var(--bad);font-weight:700}
+
 /* بعض المتصفحات (سامسونگ) ما تفرض الظلام إذا الموقع يصرّح بدعم الوضع الداكن؛ نخليه نفس الألوان الفاتحة */
 @media (prefers-color-scheme:dark){:root{color-scheme:only light}html,body{background:var(--bg);color:var(--ink)}}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}

@@ -23,7 +23,7 @@
 ## الحماية (3 طبقات)
 1. **تفعيل الجهاز:** Firebase Auth بإيميل/باسورد لحساب واحد `device@fryday.iq`. أي جهاز جديد يكتب كلمة سر المطعم مرة وحدة. الدخول المجهول (Anonymous) **مطفي**.
 2. **الموظف:** اسم + رمز 4–6 أرقام، مخزن بالقاعدة كـ SHA-256 (`pinHash`). صلاحيتين: `admin` و`staff`، والموظف ممكن ينطى `canEdit`.
-3. **القواعد:** فقط `request.auth.token.email == 'device@fryday.iq'`. الحركات (`moves`) ما تنمسح أبداً؛ أي تحديث لازم يجي وياه سجل جديد بـ `audit` بنفس الـ batch (`lastAuditId` + `existsAfter`). `audit` و`stocktakes` إضافة فقط.
+3. **القواعد:** فقط `request.auth.token.email == 'device@fryday.iq'`. الحركات (`moves`) والفواتير (`invoices`) والتسديدات (`payments`) ما تنمسح أبداً؛ أي تحديث لازم يجي وياه سجل جديد بـ `audit` بنفس الـ batch (`lastAuditId` + `existsAfter`). `audit` و`stocktakes` إضافة فقط. `suppliers` تنضاف وتتعدل وما تنمسح (إيقاف).
 
 ملاحظة: الصلاحيات (admin/staff/canEdit) مفروضة بالواجهة فقط، مو بالقواعد. القواعد تضمن السجل وعدم المسح.
 
@@ -35,14 +35,20 @@
   - الأنواع: `opening` رصيد افتتاحي، `in` وارد، `out` صرف، `transfer` نقل، `waste` تالف، `return` مرتجع للمورد، `adjust` تسوية جرد (baseQty موقّع)
   - كل الأرصدة تنحسب بالواجهة من الحركات (`balances()`)، ما اكو رصيد مخزّن.
   - `price` = سعر الوحدة المختارة، `cost` = price × qty. متوسط الكلفة = مجموع كلفة (in+opening) ÷ مجموع baseQty.
-- `audit`: `ts, action (edit|delete), moveId, moveType, itemId, itemName, moveTs, moveStaff, by, byId, why, changed, before, after`
+- `suppliers`: `name, phone, note, active`
+- `invoices` (فاتورة مشتريات): `ts, date, supplierId, supplierName, ref, locId, note, lines[{moveId, itemId, itemName, unit, qty, factor, baseQty, baseUnit, price, total, share, cost}], subtotal, transport, loading, discount, total, payMode (paid|credit|partial), paid, moveIds, staffId, staffName` + حقول التعديل/الحذف مثل الحركات
+  - كل سطر = حركة `in` عادية بيها `invoiceId, supplierId, supplierName, invPrice` (سعر الفاتورة) و`extra` (حصتها من النقل+التحميل−الخصم بنسبة قيمة السطر). `cost` = إجمالي السطر + حصته، و`price` = cost ÷ qty، حتى متوسط الكلفة يشمل المصاريف.
+  - حركات الفاتورة ما تتعدل من السجل؛ تتعدل/تنحذف من الفاتورة (batch واحد: audit + الفاتورة + الحركات).
+- `payments` (تسديد للمورد على حسابه كله): `ts, date, supplierId, supplierName, amount, method (cash|transfer), note, staffId, staffName` + حقول التعديل/الحذف
+  - المتبقي بذمتي للمورد = Σ(total − paid) للفواتير − Σ التسديدات (`supDue()`).
+- `audit`: `ts, action (edit|delete), moveId, moveType, itemId, itemName, moveTs, moveStaff, by, byId, why, changed, before, after` — ولتعديلات المشتريات: `kind (invoice|payment), invoiceId|paymentId, supplierName, ref, summary[]`
 - `stocktakes`: ملخص كل جرد + `lines`
 
 ## الوحدات
 كل مادة إلها وحدة أساسية (الصرف والجرد بيها) ووحدة كبيرة اختيارية + تعبئة. الحركة تنسجل بالوحدة المختارة وتتحول لـ `baseQty`. الجرد يقبل «كبيرة مقفلة + أساسية مفتوحة».
 
 ## الشاشات
-الرئيسية · حركة جديدة · الأرصدة (مجموعات + بحث + ملخص كمية/قيمة) · السجل (تعديل/حذف بسبب إجباري) · الجرد* · التقارير* · التعديلات والحذف* · الإدارة* (المواد، أماكن الخزن، الموظفين، النظام: استيراد إكسل + نسخة احتياطية JSON + إلغاء تفعيل الجهاز). (* للمدير)
+الرئيسية · حركة جديدة · المشتريات (فاتورة جديدة، الفواتير، الموردين ← كشف حساب + تسديد) · الأرصدة (مجموعات + بحث + ملخص كمية/قيمة، والضغط على المادة يفتح بطاقتها) · السجل (تعديل/حذف بسبب إجباري) · الجرد* · التقارير* · التعديلات والحذف* · الإدارة* (المواد، أماكن الخزن، الموظفين، النظام: استيراد إكسل + نسخة احتياطية JSON + إلغاء تفعيل الجهاز). (* للمدير). المشتريات مفتوحة للكل؛ تعديل/حذف الفواتير والتسديدات وتعديل الموردين للمدير ولمن عنده `canEdit`. زر «وارد» يفتح فاتورة المشتريات (نموذج الوارد القديم انشال؛ «رصيد افتتاحي» باقي).
 
 ## الاستيراد من إكسل
 قالب أعمدته: المخزن، المجموعة، اسم المادة، الوحدة الأساسية، الوحدة الكبيرة، التعبئة، الرصيد (بالأساسية)، سعر الوحدة الأساسية، حد الأمان. يتعرف على الأعمدة بالاسم، يعرض شاشة مراجعة (أخطاء/تكرار/استيراد سابق) قبل الحفظ، ويسوي المخازن والمواد الناقصة + حركات `opening`.

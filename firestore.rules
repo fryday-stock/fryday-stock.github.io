@@ -22,6 +22,31 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // الموردين: ينضافون ويتعدلون (والإيقاف بدل الحذف)، ما ينمسحون
+    match /suppliers/{id} {
+      allow read, create, update: if device();
+      allow delete: if false;
+    }
+
+    // فواتير المشتريات والتسديدات: نفس حماية الحركات.
+    // تنضاف، وما تنمسح نهائياً، وأي تعديل أو حذف لازم يجي وياه سجل جديد بـ audit.
+    match /invoices/{id} {
+      allow read, create: if device();
+      allow update: if device()
+        && request.resource.data.lastAuditId is string
+        && request.resource.data.lastAuditId != resource.data.get('lastAuditId', '')
+        && existsAfter(/databases/$(database)/documents/audit/$(request.resource.data.lastAuditId));
+      allow delete: if false;
+    }
+    match /payments/{id} {
+      allow read, create: if device();
+      allow update: if device()
+        && request.resource.data.lastAuditId is string
+        && request.resource.data.lastAuditId != resource.data.get('lastAuditId', '')
+        && existsAfter(/databases/$(database)/documents/audit/$(request.resource.data.lastAuditId));
+      allow delete: if false;
+    }
+
     // سجل التعديلات والحذف: ينضاف فقط، ما يتعدل ولا ينمسح
     match /audit/{id} {
       allow read, create: if device();

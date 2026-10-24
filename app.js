@@ -1,7 +1,9 @@
 import { CONFIG } from './config.js';
 
 /* ═════════════ Data layer: Firebase (online) or Local (demo) ═════════════ */
-const COLS = ['items', 'locations', 'staff', 'moves', 'stocktakes', 'audit'];
+const COLS = ['items', 'locations', 'staff', 'moves', 'stocktakes', 'audit', 'suppliers', 'invoices', 'payments'];
+// مجموعات المشتريات: إذا قواعد Firebase بعدها ما تسمح بيها، ما نطلّع الجهاز — بس ننبّه
+const PURCH_COLS = ['suppliers', 'invoices', 'payments'];
 
 function localBackend() {
   const key = c => 'inv_' + c;
@@ -83,7 +85,7 @@ const UNITS = ['كغم', 'غم', 'لتر', 'مل', 'قطعة', 'حبة', 'بطل
 
 /* ═════════════ State ═════════════ */
 const S = {
-  items: [], locations: [], staff: [], moves: [], allMoves: [], stocktakes: [], audit: [],
+  items: [], locations: [], staff: [], moves: [], allMoves: [], stocktakes: [], audit: [], suppliers: [], invoices: [], payments: [],
   aud: { tab: 'edit', from: monthStart(), to: today() },
   loaded: new Set(),
   user: null,
@@ -93,7 +95,10 @@ const S = {
   rep: { month: today().slice(0, 7) },
   adminTab: 'items',
   st: { loc: '', counts: {} },
-  mv: null
+  mv: null,
+  pur: { tab: 'new', from: monthStart(), to: today(), sup: '', supF: '' },
+  inv: null,
+  itemCard: null
 };
 let B;
 
@@ -154,7 +159,9 @@ const ICONS = {
   logout: '<path d="M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h5"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
   shield: '<path d="M12 3 4 6v6c0 4.5 3.4 8.3 8 9 4.6-.7 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/>',
-  trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 14h10l1-14"/>'
+  trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 14h10l1-14"/>',
+  purchases: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M3 4h2l2.4 11h11.2L21 8H6.2"/>',
+  back: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>'
 };
 /* وصف بطاقات الحركات بالرئيسية (عرض فقط) */
 const ACT_DESC = { in: 'استلام بضاعة من المورد', out: 'صرف مواد للمطبخ أو الأقسام', transfer: 'نقل بين المخازن', waste: 'تسجيل مواد تالفة أو منتهية', return: 'إرجاع بضاعة للمورد' };
@@ -285,17 +292,25 @@ function startData() {
     console.error(e);
     if (e.code === 'permission-denied') { started = false; B.signOut && B.signOut(); renderDevice('هذا الجهاز ما عنده صلاحية. فعّله من جديد.'); }
   };
+  const purchErr = c => e => {
+    console.error(e);
+    if (e.code !== 'permission-denied') return;
+    S[c] = []; S.loaded.add(c);
+    toast('شاشة المشتريات تحتاج تحديث قواعد Firebase (firestore.rules)', true);
+    if (S.loaded.size === COLS.length) onData();
+  };
   COLS.forEach(c => B.watch(c, rows => {
     if (c === 'moves') { rows.sort((a, b) => a.ts - b.ts); S.allMoves = rows; rows = rows.filter(m => !m.deleted); }
     S[c] = rows; S.loaded.add(c);
     if (c === 'staff' && saved && !S.user) { const u = rows.find(s => s.id === saved && s.active !== false); if (u) S.user = u; }
     if (c === 'staff' && S.user) { const u = rows.find(s => s.id === S.user.id); if (!u || u.active === false) { S.user = null; localStorage.removeItem('inv_session'); } else S.user = u; }
     if (S.loaded.size === COLS.length) onData();
-  }, onErr));
+  }, PURCH_COLS.includes(c) ? purchErr(c) : onErr));
 }
 function onData() {
   // Avoid wiping forms the user is filling
   if (S.user && (S.view === 'move' || S.view === 'stocktake') && $('#view-root')) { refreshLive(); return; }
+  if (S.user && S.view === 'purchases' && S.pur.tab === 'new' && !S.pur.sup && $('#iv-lines')) { invRefresh(); return; }
   render();
 }
 
@@ -303,6 +318,7 @@ function onData() {
 const NAV = [
   ['home', 'home', 'الرئيسية'],
   ['move', 'move', 'حركة جديدة'],
+  ['purchases', 'purchases', 'المشتريات'],
   ['stock', 'stock', 'الأرصدة'],
   ['log', 'log', 'السجل'],
   ['stocktake', 'stocktake', 'الجرد', true],
@@ -343,7 +359,7 @@ function render() {
   document.querySelectorAll('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
   const lo = () => { S.user = null; localStorage.removeItem('inv_session'); render(); };
   $('#lo').onclick = lo; $('#lo2').onclick = lo;
-  const views = { home: vHome, move: vMove, stock: vStock, log: vLog, stocktake: vStocktake, reports: vReports, audit: vAudit, admin: vAdmin };
+  const views = { home: vHome, move: vMove, purchases: vPurch, stock: vStock, log: vLog, stocktake: vStocktake, reports: vReports, audit: vAudit, admin: vAdmin };
   views[S.view]();
   window.scrollTo(0, 0);
 }
@@ -351,6 +367,8 @@ function go(v, opts = {}) {
   S.view = v;
   if (v === 'move') S.mv = newMove(opts.type || 'out');
   if (v === 'stock' && opts.loc) S.stockLoc = opts.loc;
+  if (v === 'stock') S.itemCard = opts.item || null;
+  if (v === 'purchases') { S.pur.sup = opts.sup || ''; if (opts.tab) S.pur.tab = opts.tab; }
   render();
 }
 const modeTag = () => B.mode === 'local' ? `<span class="mode">وضع تجربة — البيانات على هذا الجهاز فقط</span>` : '';
@@ -433,7 +451,7 @@ function vHome() {
       </div>
     </div>
     <div class="card"><h2>آخر الحركات</h2>${movesTable(S.moves.slice(-8).reverse(), false)}</div>`;
-  document.querySelectorAll('.act').forEach(b => b.onclick = () => go('move', { type: b.dataset.t }));
+  document.querySelectorAll('.act').forEach(b => b.onclick = () => b.dataset.t === 'in' ? go('purchases', { tab: 'new' }) : go('move', { type: b.dataset.t }));
   document.querySelectorAll('[data-loc]').forEach(b => b.onclick = () => go('stock', { loc: b.dataset.loc }));
 }
 
@@ -444,6 +462,7 @@ function newMove(type) {
 }
 function vMove() {
   const mv = S.mv || (S.mv = newMove('out'));
+  if (mv.type === 'in') { mv.type = 'out'; return go('purchases', { tab: 'new' }); } // الوارد صار بفاتورة المشتريات
   const types = ['in', 'out', 'transfer', 'waste', 'return', ...(isAdmin() ? ['opening'] : [])];
   const it = itemById(mv.itemId);
   const locs = activeLocs();
@@ -484,7 +503,7 @@ function vMove() {
       <button class="btn big t-${mv.type}" id="mv-save">${ico('save')}تأكيد ${TYPES[mv.type].label}</button>
     </div>`;
 
-  document.querySelectorAll('[data-type]').forEach(b => b.onclick = () => { S.mv.type = b.dataset.type; S.mv.reason = ''; vMove(); });
+  document.querySelectorAll('[data-type]').forEach(b => b.onclick = () => { if (b.dataset.type === 'in') return go('purchases', { tab: 'new' }); S.mv.type = b.dataset.type; S.mv.reason = ''; vMove(); });
   const bind = (id, key) => { const el = $(id); if (el) el.oninput = el.onchange = () => { S.mv[key] = el.value; refreshLive(); }; };
   bind('#mv-unit', 'unit'); bind('#mv-qty', 'qty'); bind('#mv-from', 'fromLoc'); bind('#mv-to', 'toLoc');
   bind('#mv-price', 'price'); bind('#mv-reason', 'reason'); bind('#mv-note', 'note'); bind('#mv-ref', 'ref');
@@ -579,6 +598,7 @@ const NOGRP = 'بدون مجموعة';
 const grpOf = it => normTxt(it.group) || NOGRP;
 const allGroups = () => [...new Set(activeItems().map(grpOf))].sort((a, b) => a === NOGRP ? 1 : b === NOGRP ? -1 : a.localeCompare(b, 'ar'));
 function vStock() {
+  if (S.itemCard) return vItemCard();
   const bal = balances(), tot = totalsByItem(bal), avg = avgCosts();
   const locs = activeLocs(), groups = allGroups();
   if (S.stockLoc !== 'all' && !locById(S.stockLoc)) S.stockLoc = 'all';
@@ -604,7 +624,7 @@ function vStock() {
     }
     const { it, qty } = r;
     const st = L === 'all' ? status(it, qty) : (qty < -0.0005 ? ['رصيد سالب', 'b-bad'] : Math.abs(qty) < 0.0005 ? ['فارغ', 'b-muted'] : ['متوفر', 'b-ok']);
-    body += `<tr><td><b>${esc(it.name)}</b>${sub(detailed(it, qty))}</td><td class="num ${qty < -0.0005 ? 'neg' : ''}">${N(qty)} ${esc(it.baseUnit)}</td>
+    body += `<tr><td><button class="item-link" data-card="${it.id}">${esc(it.name)}</button>${sub(detailed(it, qty))}</td><td class="num ${qty < -0.0005 ? 'neg' : ''}">${N(qty)} ${esc(it.baseUnit)}</td>
       ${L === 'all' ? `<td class="small muted">${per(it).map(([l, v]) => `${esc(l.name)}: ${N(v)}`).join(' · ')}</td><td class="num">${+it.minQty ? N(it.minQty) : '—'}</td>` : ''}
       ${isAdmin() ? `<td class="num">${M(r.val)}</td>` : ''}
       <td><span class="badge ${st[1]}">${st[0]}</span></td></tr>`;
@@ -626,6 +646,7 @@ function vStock() {
       ${body}
     </table>` : `<div class="empty">ما اكو مواد ${q ? 'بهذا البحث' : G ? 'بهذي المجموعة' : L !== 'all' ? 'بهذا المكان' : 'بعد'}</div>`}</div></div>`;
   document.querySelectorAll('[data-l]').forEach(b => b.onclick = () => { S.stockLoc = b.dataset.l; vStock(); });
+  document.querySelectorAll('[data-card]').forEach(b => b.onclick = () => { S.itemCard = b.dataset.card; vStock(); window.scrollTo(0, 0); });
   $('#sk-g').onchange = e => { S.stockGroup = e.target.value; vStock(); };
   $('#sk-q').oninput = e => { S.stockQ = e.target.value; const p = e.target.selectionStart; vStock(); const n = $('#sk-q'); n.focus(); n.setSelectionRange(p, p); };
   $('#sk-csv').onclick = () => {
@@ -659,9 +680,9 @@ function movesTable(list, withDelete) {
       <td><b>${esc(mName(m))}</b>${m.editCount ? ' <span class="badge b-warn" title="انعدلت">معدّلة</span>' : ''}${sub(esc(m.staffName))}</td>
       <td class="num">${N(m.qty, m.type === 'adjust')} ${esc(m.unit)}${m.factor > 1 ? `<div class="small muted">${N(m.baseQty)} ${esc(m.baseUnit)}</div>` : ''}</td>
       <td class="small">${esc(moveText(m))}</td>
-      <td class="small">${esc([m.reason, m.ref, m.note].filter(Boolean).join(' — '))}</td>
+      <td class="small">${esc([m.supplierName, m.reason, m.ref, m.note].filter(Boolean).join(' — '))}</td>
       ${isAdmin() ? `<td class="num">${m.cost ? money(m.cost) : ''}</td>` : ''}
-      ${withDelete ? `<td style="white-space:nowrap">${m.type !== 'adjust' ? `<button class="link" data-edit="${m.id}">${ico('edit')}تعديل</button>` : ''}${m.type !== 'adjust' || isAdmin() ? ` <button class="link bad" data-del="${m.id}">${ico('trash')}حذف</button>` : ''}</td>` : ''}
+      ${withDelete ? `<td style="white-space:nowrap">${m.invoiceId ? `<button class="link" data-inv="${m.invoiceId}">${ico('purchases')}الفاتورة</button>` : `${m.type !== 'adjust' ? `<button class="link" data-edit="${m.id}">${ico('edit')}تعديل</button>` : ''}${m.type !== 'adjust' || isAdmin() ? ` <button class="link bad" data-del="${m.id}">${ico('trash')}حذف</button>` : ''}`}</td>` : ''}
     </tr>`).join('')}
   </table></div>`;
 }
@@ -687,6 +708,7 @@ function vLog() {
   on('#f-from', 'from'); on('#f-to', 'to'); on('#f-type', 'type'); on('#f-staff', 'staff'); on('#f-q', 'q');
   document.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => editMove(S.moves.find(x => x.id === b.dataset.edit)));
   document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => deleteMove(S.moves.find(x => x.id === b.dataset.del)));
+  document.querySelectorAll('[data-inv]').forEach(b => b.onclick = () => viewInvoice(S.invoices.find(x => x.id === b.dataset.inv)));
   $('#lg-csv').onclick = () => {
     const adm = isAdmin();
     exportSheet({ file: `سجل_الحركات_${f.from}_${f.to}.xlsx`, title: `${CONFIG.title} — سجل الحركات`, sub: `من ${f.from} إلى ${f.to}   |   ${list.length} حركة`,
@@ -702,6 +724,7 @@ const audVal = (k, v) => (k === 'fromLoc' || k === 'toLoc') ? (v ? locName(v) : 
 const moveSnap = m => ({ unit: m.unit, qty: m.qty, factor: m.factor, baseQty: m.baseQty, price: m.price || 0, cost: m.cost || 0, fromLoc: m.fromLoc || '', toLoc: m.toLoc || '', reason: m.reason || '', note: m.note || '', ref: m.ref || '' });
 function editMove(m) {
   if (!m || !canEdit()) return;
+  if (m.invoiceId) return editInvoice(S.invoices.find(x => x.id === m.invoiceId)); // حركات الفاتورة تتعدل من الفاتورة
   const it = itemById(m.itemId);
   if (!it) return toast('المادة محذوفة من البطاقة', true);
   const locs = activeLocs();
@@ -751,6 +774,7 @@ function editMove(m) {
 }
 function deleteMove(m) {
   if (!m || !canEdit()) return;
+  if (m.invoiceId) return deleteInvoice(S.invoices.find(x => x.id === m.invoiceId));
   modal(`<h2>حذف حركة</h2>
     <p><b>${TYPES[m.type].label}</b> — ${esc(mName(m))} ${N(m.qty)} ${esc(m.unit)}<br><span class="small muted">سجّلها ${esc(m.staffName)} بتاريخ ${dt(m.ts)}</span></p>
     <p class="small">الحركة تنشال من الأرصدة والسجل، وتروح لخانة «المحذوفات» باسمك.</p>
@@ -770,6 +794,9 @@ function deleteMove(m) {
       };
     });
 }
+const audWhat = x => x.kind === 'invoice'
+  ? `<td class="t-in"><b class="tl">${ico('purchases')}فاتورة مشتريات</b> — ${esc(x.supplierName)}${sub(x.ref ? 'وصل ' + esc(x.ref) : '')}</td>`
+  : `<td class="t-transfer"><b class="tl">${ico('wallet')}تسديد</b> — ${esc(x.supplierName)}</td>`;
 function vAudit() {
   const a = S.aud;
   const inRange = x => x.ts >= dayStartTs(a.from) && x.ts <= dayEndTs(a.to);
@@ -787,15 +814,16 @@ function vAudit() {
     ${a.tab === 'edit' ? (edits.length ? `<table>
       <tr><th>وقت التعديل</th><th>منو عدّل</th><th>الحركة</th><th>شنو تغيّر</th><th>السبب</th><th>سجّلها أصلاً</th></tr>
       ${edits.map(x => `<tr>${dtCell(x.ts)}<td><b>${esc(x.by)}</b></td>
-        <td class="t-${x.moveType}"><b>${TYPES[x.moveType]?.label || ''}</b> — ${esc(x.itemName)}</td>
-        <td class="small">${(x.changed || []).map(k => `${AUD_FIELDS[k]}: <span style="text-decoration:line-through;color:var(--bad)">${esc(audVal(k, x.before?.[k]))}</span> ← <b>${esc(audVal(k, x.after?.[k]))}</b>`).join('<br>')}</td>
+        ${x.kind ? audWhat(x) : `<td class="t-${x.moveType}"><b>${TYPES[x.moveType]?.label || ''}</b> — ${esc(x.itemName)}</td>`}
+        <td class="small">${x.kind ? (x.summary || []).map(esc).join('<br>') : ''}${(x.changed || []).map(k => `${AUD_FIELDS[k]}: <span style="text-decoration:line-through;color:var(--bad)">${esc(audVal(k, x.before?.[k]))}</span> ← <b>${esc(audVal(k, x.after?.[k]))}</b>`).join('<br>')}</td>
         <td class="small">${esc(x.why)}</td><td class="small">${esc(x.moveStaff)}<br><span class="muted">${dt(x.moveTs)}</span></td></tr>`).join('')}
     </table>` : '<div class="empty">ما اكو تعديلات بهذي الفترة</div>')
     : (dels.length ? `<table>
       <tr><th>وقت الحذف</th><th>منو حذف</th><th>الحركة المحذوفة</th><th class="num">الكمية</th><th>المكان</th><th>السبب</th><th>سجّلها أصلاً</th></tr>
       ${dels.map(x => `<tr>${dtCell(x.ts)}<td><b>${esc(x.by)}</b></td>
-        <td class="t-${x.moveType}"><b>${TYPES[x.moveType]?.label || ''}</b> — ${esc(x.itemName)}</td>
-        <td class="num">${N(x.before?.qty)} ${esc(x.before?.unit)}</td><td class="small">${esc(where(x.moveType, x.before || {}))}</td>
+        ${x.kind ? `${audWhat(x)}<td class="num">${M(x.kind === 'invoice' ? x.before?.total : x.before?.amount)} د.ع</td><td class="small">${esc(x.kind === 'invoice' ? locName(x.before?.locId) + ' — ' + (x.before?.lines || []).length + ' مادة' : PAY_METHODS[x.before?.method] || '')}</td>`
+        : `<td class="t-${x.moveType}"><b>${TYPES[x.moveType]?.label || ''}</b> — ${esc(x.itemName)}</td>
+        <td class="num">${N(x.before?.qty)} ${esc(x.before?.unit)}</td><td class="small">${esc(where(x.moveType, x.before || {}))}</td>`}
         <td class="small">${esc(x.why)}</td><td class="small">${esc(x.moveStaff)}<br><span class="muted">${dt(x.moveTs)}</span></td></tr>`).join('')}
     </table>` : '<div class="empty">ما اكو محذوفات بهذي الفترة</div>')}
     </div></div>`;
@@ -948,6 +976,581 @@ function vReports() {
     qty: [2, 3, 4, 5, 6, 7, 8], money: [9, 10, 11, 12], totals: { label: 'المجموع', cols: [10, 11, 12] } });
 }
 
+/* ═════════════ Purchases: suppliers, invoices, payments ═════════════ */
+const PAY_MODES = { paid: 'مدفوعة بالكامل', credit: 'آجل', partial: 'دفع جزئي' };
+const PAY_METHODS = { cash: 'كاش', transfer: 'تحويل' };
+const liveInv = () => S.invoices.filter(x => !x.deleted);
+const livePay = () => S.payments.filter(x => !x.deleted);
+const supById = id => S.suppliers.find(s => s.id === id);
+const supName = x => supById(x.supplierId)?.name || x.supplierName || '—';
+const activeSups = () => S.suppliers.filter(s => s.active !== false).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+// تاريخ (YYYY-MM-DD) → ts: اليوم = الوقت الحالي، غير يوم = الظهر
+const dateTs = d => d === today() ? Date.now() : new Date(d + 'T12:00:00').getTime();
+// المتبقي بذمتي للمورد = (إجمالي الفواتير − المدفوع منها) − التسديدات
+function supDue(id, upTo = Infinity) {
+  let due = 0;
+  for (const v of liveInv()) if (v.supplierId === id && v.ts <= upTo) due += (+v.total || 0) - (+v.paid || 0);
+  for (const p of livePay()) if (p.supplierId === id && p.ts <= upTo) due -= +p.amount || 0;
+  return due;
+}
+
+/* ── invoice form state & math ── */
+const newLine = () => ({ itemId: '', unit: '', qty: '', price: '', q: '' });
+function newInv() {
+  const locs = activeLocs();
+  return { supplierId: '', ref: '', date: today(), locId: locs.length === 1 ? locs[0].id : (S.inv?.locId || ''), note: '', lines: [newLine()], transport: '', loading: '', discount: '', payMode: 'credit', paid: '' };
+}
+function invCalc(inv) {
+  const lines = inv.lines.map(l => {
+    const it = itemById(l.itemId), qty = +l.qty || 0, price = +l.price || 0;
+    const factor = it && l.unit && l.unit === it.bigUnit ? packOf(it) : 1;
+    return { ...l, it, qty, price, factor, baseQty: r3(qty * factor), total: qty * price };
+  });
+  const subtotal = lines.reduce((a, l) => a + l.total, 0);
+  const transport = +inv.transport || 0, loading = +inv.loading || 0, discount = +inv.discount || 0;
+  const net = transport + loading - discount; // يتوزع على الأسطر بنسبة قيمة كل سطر
+  lines.forEach(l => { l.share = subtotal > 0 ? net * l.total / subtotal : 0; l.cost = l.total + l.share; });
+  const total = subtotal + transport + loading - discount;
+  const paid = inv.payMode === 'paid' ? total : inv.payMode === 'credit' ? 0 : Math.min(+inv.paid || 0, total);
+  return { lines, subtotal, transport, loading, discount, total, paid, due: total - paid };
+}
+const invSnap = v => ({ supplierId: v.supplierId, supplierName: v.supplierName, ref: v.ref || '', date: v.date, locId: v.locId, note: v.note || '', transport: v.transport || 0, loading: v.loading || 0, discount: v.discount || 0, subtotal: v.subtotal, total: v.total, payMode: v.payMode, paid: v.paid,
+  lines: (v.lines || []).map(l => ({ moveId: l.moveId, itemId: l.itemId, itemName: l.itemName, unit: l.unit, qty: l.qty, price: l.price, total: l.total })) });
+function invDiff(a, b) {
+  const out = [], f = (label, x, y) => { if (String(x ?? '') !== String(y ?? '')) out.push(`${label}: ${x || '—'} ← ${y || '—'}`); };
+  f('المورد', a.supplierName, b.supplierName); f('رقم الوصل', a.ref, b.ref); f('التاريخ', a.date, b.date); f('المخزن', locName(a.locId), locName(b.locId)); f('ملاحظة', a.note, b.note);
+  f('النقل', money(a.transport), money(b.transport)); f('التحميل', money(a.loading), money(b.loading)); f('الخصم', money(a.discount), money(b.discount));
+  f('الدفع', PAY_MODES[a.payMode], PAY_MODES[b.payMode]); f('المدفوع', money(a.paid), money(b.paid)); f('الإجمالي', money(a.total), money(b.total));
+  const key = l => l.moveId || l.itemId;
+  const am = new Map(a.lines.map(l => [key(l), l])), bm = new Map(b.lines.map(l => [key(l), l]));
+  for (const [k, l] of am) {
+    const n = bm.get(k);
+    if (!n) out.push(`شال سطر: ${l.itemName} ${fmt(l.qty)} ${l.unit}`);
+    else if (n.itemId !== l.itemId || n.unit !== l.unit || +n.qty !== +l.qty || +n.price !== +l.price) out.push(`${l.itemName}: ${fmt(l.qty)} ${l.unit} × ${money(l.price)} ← ${n.itemName}: ${fmt(n.qty)} ${n.unit} × ${money(n.price)}`);
+  }
+  for (const [k, l] of bm) if (!am.has(k)) out.push(`ضاف سطر: ${l.itemName} ${fmt(l.qty)} ${l.unit} × ${money(l.price)}`);
+  return out;
+}
+
+/* ── screen ── */
+function vPurch() {
+  const P = S.pur;
+  if (P.sup) return vSupplier();
+  if (P.tab === 'new' && !S.inv) S.inv = newInv();
+  const editing = P.tab === 'new' && S.inv?.id;
+  $('#view-root').innerHTML = `
+    <div class="topline"><h1>المشتريات</h1>${modeTag()}</div>
+    <div class="tabs">
+      <button data-pt="new" class="${P.tab === 'new' ? 'on' : ''}">${ico(editing ? 'edit' : 'plus')}${editing ? 'تعديل فاتورة' : 'فاتورة جديدة'}</button>
+      <button data-pt="list" class="${P.tab === 'list' ? 'on' : ''}">${ico('log')}الفواتير</button>
+      <button data-pt="sups" class="${P.tab === 'sups' ? 'on' : ''}">${ico('user')}الموردين</button>
+    </div>
+    <div id="pur"></div>`;
+  document.querySelectorAll('[data-pt]').forEach(b => b.onclick = async () => {
+    if (P.tab === 'new' && S.inv?.id && b.dataset.pt !== 'new' && !(await confirmBox('تترك تعديل الفاتورة بدون حفظ؟', 'نعم'))) return;
+    if (P.tab === 'new' && S.inv?.id && b.dataset.pt !== 'new') S.inv = null;
+    P.tab = b.dataset.pt; vPurch();
+  });
+  ({ new: vInvForm, list: vInvList, sups: () => vSuppliers($('#pur')) })[P.tab]();
+}
+
+function vInvForm() {
+  const inv = S.inv, sups = activeSups(), locs = activeLocs();
+  const old = inv.id ? S.invoices.find(x => x.id === inv.id) : null;
+  if (old && old.supplierId && !sups.some(s => s.id === old.supplierId) && supById(old.supplierId)) sups.push(supById(old.supplierId));
+  const lineRow = (l, i) => {
+    const it = itemById(l.itemId);
+    return `<div class="iline" data-row="${i}">
+      <div class="field il-item"><label>المادة <span class="req">*</span></label>
+        ${it ? `<div class="sel-item"><span>${esc(it.name)}</span><button class="link" data-clr="${i}">تغيير</button></div>`
+             : `<div class="picker"><input class="in" data-pick="${i}" placeholder="اكتب اسم المادة…" autocomplete="off" value="${esc(l.q)}"><div class="list" hidden></div></div>`}
+      </div>
+      <div class="field"><label>الوحدة</label><select class="in" data-k="unit" data-i="${i}" ${it ? '' : 'disabled'}>${unitsOf(it).map(u => `<option ${l.unit === u ? 'selected' : ''}>${esc(u)}</option>`).join('')}</select></div>
+      <div class="field"><label>الكمية <span class="req">*</span></label><input class="in" data-k="qty" data-i="${i}" type="number" inputmode="decimal" min="0" step="any" value="${esc(l.qty)}" placeholder="0"></div>
+      <div class="field"><label>سعر الوحدة <span class="req">*</span></label><input class="in" data-k="price" data-i="${i}" type="number" inputmode="decimal" min="0" step="any" value="${esc(l.price)}" placeholder="0"></div>
+      <div class="field il-tot"><label>الإجمالي</label><div class="il-sum" data-tot="${i}"></div></div>
+      <button class="il-del" data-del="${i}" aria-label="حذف السطر" ${inv.lines.length < 2 ? 'disabled' : ''}>${ico('trash')}</button>
+    </div>`;
+  };
+  $('#pur').innerHTML = `
+    <div class="card">
+      ${inv.id ? `<p class="hint" style="margin-top:0">تعديل فاتورة ${esc(supName(old || inv))} ${old?.ref ? '— وصل ' + esc(old.ref) : ''}. التعديل ينسجل بسجل التعديلات وحركات الوارد تتحدّث وياه.</p>` : ''}
+      <h2>${ico('purchases')} رأس الفاتورة</h2>
+      <div class="row">
+        <div class="field"><label>المورد <span class="req">*</span></label>
+          ${sups.length ? `<select class="in" id="iv-sup"><option value="">— اختر —</option>${sups.map(s => `<option value="${s.id}" ${inv.supplierId === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select>` : `<div class="hint bad" style="margin-top:0">ما اكو موردين بعد.</div>`}
+          <button class="link" id="iv-newsup">${ico('plus')}مورد جديد</button>
+        </div>
+        <div class="field"><label>رقم الوصل</label><input class="in" id="iv-ref" value="${esc(inv.ref)}"></div>
+      </div>
+      <div class="row">
+        <div class="field"><label>التاريخ <span class="req">*</span></label><input class="in" id="iv-date" type="date" max="${today()}" value="${esc(inv.date)}"></div>
+        <div class="field"><label>المخزن <span class="req">*</span></label><select class="in" id="iv-loc"><option value="">— اختر —</option>${locs.map(l => `<option value="${l.id}" ${inv.locId === l.id ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}</select></div>
+      </div>
+      <div class="field"><label>ملاحظة</label><input class="in" id="iv-note" value="${esc(inv.note)}"></div>
+    </div>
+    <div class="card">
+      <h2>${ico('stock')} المواد</h2>
+      <div id="iv-lines">${inv.lines.map(lineRow).join('')}</div>
+      <button class="btn ghost" id="iv-add">${ico('plus')}سطر جديد</button>
+    </div>
+    <div class="two">
+      <div class="card">
+        <h2>${ico('wallet')} مبالغ إضافية وخصم</h2>
+        <div class="row3">
+          <div class="field"><label>نقل</label><input class="in" id="iv-transport" type="number" inputmode="decimal" min="0" step="any" value="${esc(inv.transport)}" placeholder="0"></div>
+          <div class="field"><label>تحميل</label><input class="in" id="iv-loading" type="number" inputmode="decimal" min="0" step="any" value="${esc(inv.loading)}" placeholder="0"></div>
+          <div class="field"><label>خصم</label><input class="in" id="iv-discount" type="number" inputmode="decimal" min="0" step="any" value="${esc(inv.discount)}" placeholder="0"></div>
+        </div>
+        <p class="hint" style="margin-top:0">النقل والتحميل والخصم يتوزعن على كلفة المواد بنسبة قيمة كل سطر.</p>
+        <h2 style="margin-top:8px">${ico('check')} طريقة الدفع</h2>
+        <div class="seg paymode">${Object.entries(PAY_MODES).map(([k, t]) => `<button data-pm="${k}" class="${inv.payMode === k ? 'on' : ''}">${t}</button>`).join('')}</div>
+        ${inv.payMode === 'partial' ? `<div class="field"><label>المبلغ المدفوع <span class="req">*</span></label><input class="in" id="iv-paid" type="number" inputmode="decimal" min="0" step="any" value="${esc(inv.paid)}"></div>` : ''}
+      </div>
+      <div class="card totbox" id="iv-totals"></div>
+    </div>
+    <button class="btn big t-in" id="iv-save">${ico('save')}${inv.id ? 'حفظ تعديل الفاتورة' : 'حفظ الفاتورة'}</button>
+    ${inv.id ? `<button class="btn ghost" id="iv-cancel" style="width:100%;margin-top:10px">إلغاء التعديل</button>` : ''}`;
+
+  const bindH = (id, k) => { const el = $(id); if (el) el.oninput = el.onchange = () => { inv[k] = el.value; invRefresh(); }; };
+  bindH('#iv-sup', 'supplierId'); bindH('#iv-ref', 'ref'); bindH('#iv-date', 'date'); bindH('#iv-loc', 'locId'); bindH('#iv-note', 'note');
+  bindH('#iv-transport', 'transport'); bindH('#iv-loading', 'loading'); bindH('#iv-discount', 'discount'); bindH('#iv-paid', 'paid');
+  document.querySelectorAll('#iv-lines [data-k]').forEach(el => el.oninput = el.onchange = () => { inv.lines[+el.dataset.i][el.dataset.k] = el.value; invRefresh(); });
+  document.querySelectorAll('[data-pm]').forEach(b => b.onclick = () => { inv.payMode = b.dataset.pm; vInvForm(); });
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { inv.lines.splice(+b.dataset.del, 1); vInvForm(); });
+  document.querySelectorAll('[data-clr]').forEach(b => b.onclick = () => { const l = inv.lines[+b.dataset.clr]; l.itemId = ''; l.unit = ''; l.q = ''; vInvForm(); document.querySelector(`[data-pick="${b.dataset.clr}"]`)?.focus(); });
+  document.querySelectorAll('[data-pick]').forEach(setupLinePicker);
+  $('#iv-add').onclick = () => { inv.lines.push(newLine()); vInvForm(); document.querySelector(`[data-pick="${inv.lines.length - 1}"]`)?.focus(); };
+  $('#iv-newsup').onclick = () => supplierForm(null, id => { inv.supplierId = id; vInvForm(); });
+  $('#iv-save').onclick = saveInvoice;
+  if ($('#iv-cancel')) $('#iv-cancel').onclick = () => { S.inv = null; S.pur.tab = 'list'; vPurch(); };
+  invRefresh();
+}
+function setupLinePicker(q) {
+  const i = +q.dataset.pick, list = q.nextElementSibling, l = S.inv.lines[i];
+  let hl = 0, res = [];
+  const tot = totalsByItem(balances());
+  const draw = () => {
+    const s = q.value.trim(); l.q = q.value;
+    res = activeItems().filter(x => !s || x.name.includes(s)).slice(0, 30);
+    if (!res.length) { list.innerHTML = `<div class="opt muted">ما اكو مادة بهذا الاسم${isAdmin() ? ' — أضفها من الإدارة' : ''}</div>`; list.hidden = false; return; }
+    hl = Math.min(hl, res.length - 1);
+    list.innerHTML = res.map((x, n) => `<div class="opt ${n === hl ? 'hl' : ''}" data-id="${x.id}"><span>${esc(x.name)}</span><small>${fmt(tot.get(x.id) || 0)} ${esc(x.baseUnit)}</small></div>`).join('');
+    list.hidden = false;
+    list.querySelectorAll('[data-id]').forEach(o => o.onmousedown = e => { e.preventDefault(); choose(o.dataset.id); });
+  };
+  const choose = id => {
+    const it = itemById(id); l.itemId = id; l.unit = it.bigUnit && packOf(it) > 1 ? it.bigUnit : it.baseUnit; l.q = '';
+    if (!l.price) { const last = lastBuy(id, l.unit); if (last) l.price = String(last); }
+    vInvForm(); document.querySelector(`[data-i="${i}"][data-k="qty"]`)?.focus();
+  };
+  q.oninput = () => { hl = 0; draw(); };
+  q.onfocus = draw;
+  q.onblur = () => setTimeout(() => list.hidden = true, 150);
+  q.onkeydown = e => {
+    if (e.key === 'ArrowDown') { hl = Math.min(hl + 1, res.length - 1); draw(); e.preventDefault(); }
+    if (e.key === 'ArrowUp') { hl = Math.max(hl - 1, 0); draw(); e.preventDefault(); }
+    if (e.key === 'Enter' && res[hl]) { choose(res[hl].id); e.preventDefault(); }
+  };
+}
+// آخر سعر شراء للمادة بنفس الوحدة (اقتراح فقط)
+function lastBuy(itemId, unit) {
+  for (let k = S.moves.length - 1; k >= 0; k--) { const m = S.moves[k]; if (m.itemId === itemId && m.type === 'in' && m.unit === unit) return m.invPrice ?? m.price; }
+  return 0;
+}
+function invRefresh() {
+  if (S.view !== 'purchases' || S.pur.tab !== 'new' || !S.inv) return;
+  const c = invCalc(S.inv);
+  c.lines.forEach((l, i) => {
+    const el = document.querySelector(`[data-tot="${i}"]`);
+    if (el) el.innerHTML = l.total ? `${M(l.total)}${l.factor > 1 && l.qty ? sub(`= ${N(l.baseQty)} ${esc(l.it.baseUnit)}`) : ''}` : '<span class="muted">—</span>';
+  });
+  const box = $('#iv-totals'); if (!box) return;
+  box.innerHTML = `<h2>${ico('reports')} الإجمالي</h2>
+    <div class="tl-row"><span>مجموع المواد</span><b>${M(c.subtotal)}</b></div>
+    ${c.transport ? `<div class="tl-row"><span>نقل</span><b>+ ${M(c.transport)}</b></div>` : ''}
+    ${c.loading ? `<div class="tl-row"><span>تحميل</span><b>+ ${M(c.loading)}</b></div>` : ''}
+    ${c.discount ? `<div class="tl-row"><span>خصم</span><b>− ${M(c.discount)}</b></div>` : ''}
+    <div class="tl-row grand"><span>الإجمالي النهائي</span><b>${M(c.total)} <small>د.ع</small></b></div>
+    <div class="tl-row"><span>المدفوع</span><b>${M(c.paid)}</b></div>
+    <div class="tl-row ${c.due > 0.5 ? 'due' : ''}"><span>المتبقي بذمتي</span><b>${M(c.due)}</b></div>`;
+}
+async function saveInvoice() {
+  const inv = S.inv, c = invCalc(inv), sup = supById(inv.supplierId);
+  if (!sup) return toast('اختر المورد', true);
+  if (!inv.date) return toast('اختر التاريخ', true);
+  if (inv.date > today()) return toast('التاريخ ما يصير بالمستقبل', true);
+  if (!inv.locId) return toast('اختر المخزن', true);
+  const lines = c.lines.filter(l => l.itemId || l.qty || l.price);
+  if (!lines.length) return toast('أضف مادة وحدة على الأقل', true);
+  for (const [n, l] of lines.entries()) {
+    if (!l.it) return toast(`السطر ${n + 1}: اختر المادة`, true);
+    if (!(l.qty > 0)) return toast(`السطر ${n + 1}: اكتب الكمية`, true);
+    if (!(l.price > 0)) return toast(`السطر ${n + 1}: اكتب السعر`, true);
+  }
+  if ([c.transport, c.loading, c.discount].some(v => v < 0)) return toast('المبالغ الإضافية والخصم ما تكون سالبة', true);
+  if (c.total <= 0) return toast('الخصم أكبر من قيمة الفاتورة', true);
+  if (inv.payMode === 'partial' && !(+inv.paid > 0 && +inv.paid < c.total)) return toast('المبلغ المدفوع لازم يكون أكثر من صفر وأقل من الإجمالي', true);
+  const old = inv.id ? S.invoices.find(x => x.id === inv.id) : null;
+  let why = '';
+  if (old) {
+    why = await askWhy('سبب تعديل الفاتورة', 'مثلاً: السعر انكتب غلط');
+    if (!why) return;
+  }
+  const ts = old && old.date === inv.date ? old.ts : dateTs(inv.date);
+  const now = Date.now(), invId = old ? old.id : B.newId(), ops = [];
+  const recLines = lines.map(l => {
+    const moveId = l.moveId || B.newId();
+    return { moveId, itemId: l.it.id, itemName: l.it.name, unit: l.unit || l.it.baseUnit, qty: r3(l.qty), factor: l.factor, baseQty: l.baseQty, baseUnit: l.it.baseUnit, price: l.price, total: Math.round(l.total), share: Math.round(l.share), cost: Math.round(l.cost) };
+  });
+  const head = { ts, date: inv.date, supplierId: sup.id, supplierName: sup.name, ref: inv.ref.trim(), locId: inv.locId, note: inv.note.trim(),
+    lines: recLines, subtotal: Math.round(c.subtotal), transport: c.transport, loading: c.loading, discount: c.discount, total: Math.round(c.total), payMode: inv.payMode, paid: Math.round(c.paid) };
+  const moveDoc = l => ({ ts, type: 'in', itemId: l.itemId, itemName: l.itemName, unit: l.unit, qty: l.qty, factor: l.factor, baseQty: l.baseQty, baseUnit: l.baseUnit,
+    price: l.qty ? Math.round(l.cost / l.qty * 100) / 100 : 0, cost: l.cost, fromLoc: '', toLoc: inv.locId, reason: '', ref: head.ref, note: '',
+    invoiceId: invId, supplierId: sup.id, supplierName: sup.name, invPrice: l.price, extra: l.share });
+  if (!old) {
+    ops.push({ type: 'set', col: 'invoices', id: invId, data: { ...head, moveIds: recLines.map(l => l.moveId), staffId: S.user.id, staffName: S.user.name } });
+    recLines.forEach(l => ops.push({ type: 'set', col: 'moves', id: l.moveId, data: { ...moveDoc(l), staffId: S.user.id, staffName: S.user.name } }));
+  } else {
+    const before = invSnap(old), after = invSnap({ ...old, ...head }), summary = invDiff(before, after);
+    if (!summary.length) return toast('ما غيّرت شي', true);
+    const aid = B.newId(), edit = { lastAuditId: aid, editedBy: S.user.name, editedAt: now };
+    ops.push({ type: 'set', col: 'audit', id: aid, data: { ts: now, action: 'edit', kind: 'invoice', invoiceId: old.id, supplierName: sup.name, ref: head.ref, moveTs: old.ts, moveStaff: old.staffName, by: S.user.name, byId: S.user.id, why, summary, before, after } });
+    ops.push({ type: 'update', col: 'invoices', id: old.id, data: { ...head, moveIds: recLines.map(l => l.moveId), ...edit, editCount: (old.editCount || 0) + 1 } });
+    const keep = new Set(recLines.map(l => l.moveId));
+    for (const id of old.moveIds || []) if (!keep.has(id)) ops.push({ type: 'update', col: 'moves', id, data: { deleted: true, deletedBy: S.user.name, deletedAt: now, lastAuditId: aid } });
+    for (const l of recLines) {
+      const prev = S.allMoves.find(m => m.id === l.moveId);
+      if (prev) ops.push({ type: 'update', col: 'moves', id: l.moveId, data: { ...moveDoc(l), ...edit, editCount: (prev.editCount || 0) + 1 } });
+      else ops.push({ type: 'set', col: 'moves', id: l.moveId, data: { ...moveDoc(l), staffId: S.user.id, staffName: S.user.name } });
+    }
+  }
+  $('#iv-save').disabled = true;
+  try { await B.batch(ops); }
+  catch (e) { $('#iv-save').disabled = false; return toast('ما انحفظت: ' + e.message, true); }
+  toast(old ? '✔ انعدلت الفاتورة وانسجل التعديل' : `✔ انحفظت الفاتورة: ${recLines.length} مادة — ${money(head.total)} د.ع`);
+  const keepLoc = inv.locId;
+  S.inv = old ? null : { ...newInv(), locId: keepLoc };
+  if (old) S.pur.tab = 'list';
+  vPurch();
+}
+function askWhy(title, ph) {
+  return new Promise(res => {
+    modal(`<h2>${title}</h2><div class="field"><label>السبب <span class="req">*</span></label><input class="in" id="w-why" placeholder="${ph}"></div>
+      <div class="foot"><button class="btn" id="w-ok">${ico('save')}متابعة</button><button class="btn ghost" id="w-no">إلغاء</button></div>`, (m, close) => {
+      const ok = () => { const v = m.querySelector('#w-why').value.trim(); if (!v) return toast('اكتب السبب', true); close(); res(v); };
+      m.querySelector('#w-ok').onclick = ok; m.querySelector('#w-why').onkeydown = e => { if (e.key === 'Enter') ok(); };
+      m.querySelector('#w-no').onclick = () => { close(); res(''); };
+      m.querySelector('#w-why').focus();
+    });
+  });
+}
+
+/* ── invoices list ── */
+function vInvList() {
+  const P = S.pur;
+  const list = liveInv().filter(v => v.ts >= dayStartTs(P.from) && v.ts <= dayEndTs(P.to) && (!P.supF || v.supplierId === P.supF)).sort((a, b) => b.ts - a.ts);
+  const sum = k => list.reduce((a, v) => a + (+v[k] || 0), 0);
+  const st = v => v.paid >= v.total ? ['مدفوعة', 'b-ok'] : v.paid > 0 ? ['جزئي', 'b-warn'] : ['آجل', 'b-bad'];
+  $('#pur').innerHTML = `
+    <div class="card">
+      <div class="filters">
+        <label class="small">من<br><input class="in" type="date" id="pf-from" value="${P.from}"></label>
+        <label class="small">إلى<br><input class="in" type="date" id="pf-to" value="${P.to}"></label>
+        <label class="small">المورد<br><select class="in" id="pf-sup"><option value="">الكل</option>${S.suppliers.map(s => `<option value="${s.id}" ${P.supF === s.id ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>
+      </div>
+      ${list.length ? `<div class="sumbar"><span><span class="muted small">الفواتير</span><b>${list.length}</b></span><span><span class="muted small">الإجمالي</span><b>${M(sum('total'))} د.ع</b></span><span><span class="muted small">المدفوع</span><b>${M(sum('paid'))} د.ع</b></span><span><span class="muted small">المتبقي منها</span><b>${M(sum('total') - sum('paid'))} د.ع</b></span></div>` : ''}
+      <div class="tbl-wrap">${list.length ? `<table>
+        <tr><th>التاريخ</th><th>المورد / الوصل</th><th>المخزن</th><th class="num">المواد</th><th class="num">الإجمالي</th><th class="num">المدفوع</th><th class="num">المتبقي</th><th>الحالة</th><th></th></tr>
+        ${list.map(v => { const s = st(v); return `<tr>${dtCell(v.ts)}<td><b>${esc(supName(v))}</b>${sub(v.ref ? 'وصل ' + esc(v.ref) : '')}${v.editCount ? ' <span class="badge b-warn">معدّلة</span>' : ''}</td><td class="small">${esc(locName(v.locId))}</td><td class="num">${(v.lines || []).length}</td><td class="num"><b>${M(v.total)}</b></td><td class="num">${M(v.paid)}</td><td class="num ${v.total - v.paid > 0.5 ? 'neg' : ''}">${M(v.total - v.paid)}</td><td><span class="badge ${s[1]}">${s[0]}</span></td>
+          <td style="white-space:nowrap"><button class="link" data-view="${v.id}">${ico('log')}عرض</button>${canEdit() ? `<button class="link" data-ied="${v.id}">${ico('edit')}تعديل</button><button class="link bad" data-idel="${v.id}">${ico('trash')}حذف</button>` : ''}</td></tr>`; }).join('')}
+      </table>` : `<div class="empty">ما اكو فواتير بهذي الفترة</div>`}</div>
+    </div>`;
+  const on = (id, k) => $(id).onchange = e => { P[k] = e.target.value; vInvList(); };
+  on('#pf-from', 'from'); on('#pf-to', 'to'); on('#pf-sup', 'supF');
+  bindInvActions();
+}
+function bindInvActions() {
+  document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => viewInvoice(S.invoices.find(x => x.id === b.dataset.view)));
+  document.querySelectorAll('[data-ied]').forEach(b => b.onclick = () => editInvoice(S.invoices.find(x => x.id === b.dataset.ied)));
+  document.querySelectorAll('[data-idel]').forEach(b => b.onclick = () => deleteInvoice(S.invoices.find(x => x.id === b.dataset.idel)));
+}
+function viewInvoice(v) {
+  if (!v) return;
+  modal(`<h2>${ico('purchases')} فاتورة ${esc(supName(v))}</h2>
+    <p class="small muted" style="margin-top:-6px">${v.ref ? 'وصل ' + esc(v.ref) + ' — ' : ''}${esc(v.date)} — ${esc(locName(v.locId))} — سجّلها ${esc(v.staffName)}${v.note ? '<br>' + esc(v.note) : ''}</p>
+    <div class="tbl-wrap"><table><tr><th>المادة</th><th class="num">الكمية</th><th class="num">السعر</th><th class="num">الإجمالي</th></tr>
+      ${(v.lines || []).map(l => `<tr><td><b>${esc(l.itemName)}</b>${l.share ? sub(`كلفة بعد التوزيع: ${money(l.cost)}`) : ''}</td><td class="num">${N(l.qty)} ${esc(l.unit)}</td><td class="num">${M(l.price)}</td><td class="num">${M(l.total)}</td></tr>`).join('')}
+    </table></div>
+    <div class="totbox" style="margin-top:12px">
+      <div class="tl-row"><span>مجموع المواد</span><b>${M(v.subtotal)}</b></div>
+      ${v.transport ? `<div class="tl-row"><span>نقل</span><b>+ ${M(v.transport)}</b></div>` : ''}${v.loading ? `<div class="tl-row"><span>تحميل</span><b>+ ${M(v.loading)}</b></div>` : ''}${v.discount ? `<div class="tl-row"><span>خصم</span><b>− ${M(v.discount)}</b></div>` : ''}
+      <div class="tl-row grand"><span>الإجمالي</span><b>${M(v.total)} <small>د.ع</small></b></div>
+      <div class="tl-row"><span>${PAY_MODES[v.payMode] || ''} — المدفوع</span><b>${M(v.paid)}</b></div>
+      <div class="tl-row ${v.total - v.paid > 0.5 ? 'due' : ''}"><span>المتبقي</span><b>${M(v.total - v.paid)}</b></div>
+    </div>
+    <div class="foot"><button class="btn ghost" id="vw-c">إغلاق</button></div>`, (m, close) => { m.querySelector('#vw-c').onclick = close; });
+}
+function editInvoice(v) {
+  if (!v || !canEdit()) return;
+  S.inv = { id: v.id, supplierId: v.supplierId, ref: v.ref || '', date: v.date, locId: v.locId, note: v.note || '',
+    lines: (v.lines || []).map(l => ({ moveId: l.moveId, itemId: l.itemId, unit: l.unit, qty: String(l.qty), price: String(l.price), q: '' })),
+    transport: v.transport ? String(v.transport) : '', loading: v.loading ? String(v.loading) : '', discount: v.discount ? String(v.discount) : '', payMode: v.payMode || 'credit', paid: v.payMode === 'partial' ? String(v.paid) : '' };
+  go('purchases', { tab: 'new' });
+}
+function deleteInvoice(v) {
+  if (!v || !canEdit()) return;
+  modal(`<h2>حذف فاتورة</h2>
+    <p><b>${esc(supName(v))}</b>${v.ref ? ' — وصل ' + esc(v.ref) : ''} — ${M(v.total)} د.ع<br><span class="small muted">${esc(v.date)} — ${(v.lines || []).length} مادة — سجّلها ${esc(v.staffName)}</span></p>
+    <p class="small">الفاتورة وكل حركات الوارد مالتها تنشال من الأرصدة وكشف الحساب، وتروح لخانة «المحذوفات» باسمك.</p>
+    <div class="field"><label>سبب الحذف <span class="req">*</span></label><input class="in" id="d-why" placeholder="مثلاً: انسجلت مرتين"></div>
+    <div class="foot"><button class="btn danger" id="d-s">${ico('trash')}حذف</button><button class="btn ghost" id="d-c">إلغاء</button></div>`,
+    (md, close) => {
+      md.querySelector('#d-c').onclick = close;
+      md.querySelector('#d-s').onclick = async () => {
+        const why = md.querySelector('#d-why').value.trim();
+        if (!why) return toast('اكتب سبب الحذف', true);
+        const aid = B.newId(), now = Date.now(), del = { deleted: true, deletedBy: S.user.name, deletedAt: now, lastAuditId: aid };
+        const ops = [{ type: 'set', col: 'audit', id: aid, data: { ts: now, action: 'delete', kind: 'invoice', invoiceId: v.id, supplierName: supName(v), ref: v.ref || '', moveTs: v.ts, moveStaff: v.staffName, by: S.user.name, byId: S.user.id, why, before: invSnap(v) } },
+          { type: 'update', col: 'invoices', id: v.id, data: del }];
+        for (const id of v.moveIds || []) if (S.allMoves.some(m => m.id === id && !m.deleted)) ops.push({ type: 'update', col: 'moves', id, data: del });
+        try { await B.batch(ops); } catch (e) { return toast('ما انحذفت: ' + e.message, true); }
+        close(); toast('انحذفت الفاتورة وانسجلت بالمحذوفات');
+      };
+    });
+}
+
+/* ── suppliers ── */
+function vSuppliers(box) {
+  const list = S.suppliers.slice().sort((a, b) => (a.active === false) - (b.active === false) || a.name.localeCompare(b.name, 'ar'));
+  const dues = new Map(list.map(s => [s.id, supDue(s.id)]));
+  const total = [...dues.values()].filter(v => v > 0.5).reduce((a, v) => a + v, 0);
+  box.innerHTML = `
+    <div class="card">
+      <div class="sumbar"><span><span class="muted small">الموردين</span><b>${list.filter(s => s.active !== false).length}</b></span><span><span class="muted small">عليهم ديون</span><b>${[...dues.values()].filter(v => v > 0.5).length}</b></span><span><span class="muted small">مجموع الديون بذمتي</span><b>${M(total)} د.ع</b></span></div>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px"><button class="btn sm" id="sp-new">${ico('plus')}مورد جديد</button></div>
+      ${list.length ? `<div class="tbl-wrap"><table><tr><th>المورد</th><th>ملاحظات</th><th class="num">المتبقي بذمتي</th><th></th></tr>
+        ${list.map(s => { const d = dues.get(s.id); return `<tr style="${s.active === false ? 'opacity:.55' : ''}"><td><b>${esc(s.name)}</b>${s.active === false ? ' <span class="badge b-muted">موقوف</span>' : ''}${sub(s.phone ? `<a href="tel:${esc(s.phone)}" dir="ltr">${esc(s.phone)}</a>` : '')}</td>
+          <td class="small muted">${esc(s.note || '')}</td><td class="num ${d > 0.5 ? 'neg' : ''}"><b>${M(d)}</b></td>
+          <td style="white-space:nowrap"><button class="link" data-st="${s.id}">${ico('wallet')}كشف حساب</button>${canEdit() ? `<button class="link" data-sed="${s.id}">${ico('edit')}تعديل</button>` : ''}</td></tr>`; }).join('')}
+      </table></div>` : `<div class="empty">ما اكو موردين. أضف أول مورد.</div>`}
+    </div>`;
+  box.querySelector('#sp-new').onclick = () => supplierForm();
+  box.querySelectorAll('[data-st]').forEach(b => b.onclick = () => go('purchases', { sup: b.dataset.st }));
+  box.querySelectorAll('[data-sed]').forEach(b => b.onclick = () => supplierForm(supById(b.dataset.sed)));
+}
+function supplierForm(s, after) {
+  if (s && !canEdit()) return;
+  modal(`<h2>${s ? 'تعديل مورد' : 'مورد جديد'}</h2>
+    <div class="field"><label>الاسم <span class="req">*</span></label><input class="in" id="sp-n" value="${esc(s?.name)}"></div>
+    <div class="field"><label>الهاتف</label><input class="in" id="sp-p" dir="ltr" inputmode="tel" value="${esc(s?.phone)}"></div>
+    <div class="field"><label>ملاحظات</label><input class="in" id="sp-o" value="${esc(s?.note)}"></div>
+    <div class="foot"><button class="btn" id="sp-s">${ico('save')}حفظ</button><button class="btn ghost" id="sp-c">إلغاء</button>
+    ${s ? `<button class="btn ghost" id="sp-x" style="margin-right:auto">${s.active === false ? 'إعادة تفعيل' : 'إيقاف'}</button>` : ''}</div>`,
+    (m, close) => {
+      m.querySelector('#sp-c').onclick = close;
+      m.querySelector('#sp-s').onclick = async () => {
+        const name = normTxt(m.querySelector('#sp-n').value), phone = normTxt(m.querySelector('#sp-p').value), note = normTxt(m.querySelector('#sp-o').value);
+        if (!name) return toast('اكتب اسم المورد', true);
+        if (S.suppliers.some(x => normKey(x.name) === normKey(name) && x.id !== s?.id)) return toast('اكو مورد بنفس الاسم', true);
+        let id = s?.id;
+        if (s) await B.update('suppliers', s.id, { name, phone, note });
+        else id = await B.add('suppliers', { name, phone, note, active: true, created: Date.now() });
+        close(); toast('✔ انحفظ المورد'); after && after(id);
+      };
+      const x = m.querySelector('#sp-x');
+      if (x) x.onclick = async () => { await B.update('suppliers', s.id, { active: s.active === false }); close(); toast('✔ تم'); };
+    });
+}
+
+/* ── supplier statement (كشف حساب) ── */
+function supLedger(id) {
+  const rows = [];
+  for (const v of liveInv()) if (v.supplierId === id) {
+    rows.push({ ts: v.ts, kind: 'inv', ref: v.ref || '', text: `فاتورة مشتريات — ${(v.lines || []).length} مادة`, debit: +v.total || 0, credit: 0, inv: v });
+    if (+v.paid > 0) rows.push({ ts: v.ts, kind: 'paidnow', ref: v.ref || '', text: 'مدفوع عند الاستلام', debit: 0, credit: +v.paid, inv: v });
+  }
+  for (const p of livePay()) if (p.supplierId === id) rows.push({ ts: p.ts, kind: 'pay', ref: '', text: `تسديد ${PAY_METHODS[p.method] || ''}${p.note ? ' — ' + p.note : ''}`, debit: 0, credit: +p.amount || 0, pay: p });
+  rows.sort((a, b) => a.ts - b.ts || (a.kind === 'paidnow') - (b.kind === 'paidnow'));
+  let bal = 0; rows.forEach(r => { bal += r.debit - r.credit; r.bal = bal; });
+  return rows;
+}
+function supItems(id, t0, t1) {
+  const m = new Map();
+  for (const v of liveInv()) if (v.supplierId === id && v.ts >= t0 && v.ts <= t1) for (const l of v.lines || []) {
+    const it = itemById(l.itemId), x = m.get(l.itemId) || { name: it?.name || l.itemName, unit: it?.baseUnit || l.baseUnit, qty: 0, amount: 0, last: 0, lastUnit: '', lastTs: 0 };
+    x.qty += +l.baseQty || 0; x.amount += +l.total || 0;
+    if (v.ts >= x.lastTs) { x.lastTs = v.ts; x.last = l.price; x.lastUnit = l.unit; }
+    m.set(l.itemId, x);
+  }
+  return [...m.values()].sort((a, b) => b.amount - a.amount);
+}
+function vSupplier() {
+  const P = S.pur, s = supById(P.sup);
+  if (!s) { P.sup = ''; return vPurch(); }
+  const t0 = dayStartTs(P.from), t1 = dayEndTs(P.to);
+  const all = supLedger(s.id), before = all.filter(r => r.ts < t0), rows = all.filter(r => r.ts >= t0 && r.ts <= t1);
+  const open = before.length ? before[before.length - 1].bal : 0, due = supDue(s.id);
+  const items = supItems(s.id, t0, t1);
+  const sumD = rows.reduce((a, r) => a + r.debit, 0), sumC = rows.reduce((a, r) => a + r.credit, 0);
+  $('#view-root').innerHTML = `
+    <div class="topline"><h1>${esc(s.name)}</h1>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" id="sv-back">${ico('back')}رجوع</button><button class="btn sm t-in" id="sv-pay">${ico('wallet')}تسديد</button></div></div>
+    <div class="overview">
+      <div class="valcard"><div class="vc-top"><span>المتبقي بذمتي</span><img src="logo.png" alt=""></div><div class="vc-num">${M(due)}<small>د.ع</small></div>
+        <div class="vc-foot"><span>${s.phone ? `<a href="tel:${esc(s.phone)}" dir="ltr" style="color:inherit">${esc(s.phone)}</a>` : 'بدون هاتف'}</span>${s.note ? `<span>${esc(s.note)}</span>` : ''}</div></div>
+      <div class="kpis">
+        <div class="kpi k-blue"><span class="ki">${ico('purchases')}</span><div><div class="l">فواتير الفترة</div><div class="v">${M(sumD)}</div></div></div>
+        <div class="kpi k-green"><span class="ki">${ico('wallet')}</span><div><div class="l">المدفوع بالفترة</div><div class="v">${M(sumC)}</div></div></div>
+        <div class="kpi k-amber"><span class="ki">${ico('clock')}</span><div><div class="l">رصيد قبل الفترة</div><div class="v">${M(open)}</div></div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="filters" style="justify-content:space-between">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
+          <label class="small">من<br><input class="in" type="date" id="sv-from" value="${P.from}"></label>
+          <label class="small">إلى<br><input class="in" type="date" id="sv-to" value="${P.to}"></label>
+        </div>
+        <button class="btn sm" id="sv-csv">${ico('download')}تصدير الكشف</button>
+      </div>
+      <h2>${ico('wallet')} كشف الحساب</h2>
+      <div class="tbl-wrap"><table>
+        <tr><th>التاريخ</th><th>البيان</th><th class="num">فواتير (علي)</th><th class="num">تسديدات (دفعت)</th><th class="num">الرصيد</th><th></th></tr>
+        <tr class="grp"><td colspan="4"><b>رصيد سابق</b> <span class="small muted">— قبل ${P.from}</span></td><td class="num"><b>${M(open)}</b></td><td></td></tr>
+        ${rows.map(r => `<tr>${dtCell(r.ts)}<td><b class="${r.kind === 'inv' ? 't-in' : r.kind === 'pay' ? 't-transfer' : ''}">${esc(r.text)}</b>${sub(r.ref ? 'وصل ' + esc(r.ref) : r.pay ? 'سجّلها ' + esc(r.pay.staffName) : '')}${(r.inv || r.pay)?.editCount && r.kind !== 'paidnow' ? ' <span class="badge b-warn">معدّلة</span>' : ''}</td>
+          <td class="num">${r.debit ? M(r.debit) : ''}</td><td class="num">${r.credit ? M(r.credit) : ''}</td><td class="num"><b>${M(r.bal)}</b></td>
+          <td style="white-space:nowrap">${r.kind === 'inv' ? `<button class="link" data-view="${r.inv.id}">${ico('log')}عرض</button>${canEdit() ? `<button class="link" data-ied="${r.inv.id}">${ico('edit')}</button><button class="link bad" data-idel="${r.inv.id}">${ico('trash')}</button>` : ''}`
+            : r.kind === 'pay' && canEdit() ? `<button class="link" data-ped="${r.pay.id}">${ico('edit')}تعديل</button><button class="link bad" data-pdel="${r.pay.id}">${ico('trash')}حذف</button>` : ''}</td></tr>`).join('')}
+        ${rows.length ? '' : `<tr><td colspan="6" class="empty">ما اكو حركات بهذي الفترة</td></tr>`}
+      </table></div>
+    </div>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><h2 style="margin:0">${ico('stock')} المواد المشتراة بالفترة</h2>${items.length ? `<button class="btn ghost sm" id="sv-icsv">${ico('download')}تصدير المواد</button>` : ''}</div>
+      ${items.length ? `<div class="tbl-wrap"><table><tr><th>المادة</th><th class="num">الكمية</th><th class="num">المبلغ</th><th class="num">آخر سعر</th></tr>
+        ${items.map(x => `<tr><td><b>${esc(x.name)}</b></td><td class="num">${N(x.qty)} ${esc(x.unit)}</td><td class="num">${M(x.amount)}</td><td class="num">${M(x.last)}${sub('لكل ' + esc(x.lastUnit))}</td></tr>`).join('')}
+      </table></div>` : `<div class="empty">ما اكو مشتريات بهذي الفترة</div>`}
+    </div>`;
+  $('#sv-back').onclick = () => go('purchases', { tab: 'sups' });
+  $('#sv-pay').onclick = () => paymentForm(s);
+  $('#sv-from').onchange = e => { P.from = e.target.value; vSupplier(); };
+  $('#sv-to').onchange = e => { P.to = e.target.value; vSupplier(); };
+  bindInvActions();
+  document.querySelectorAll('[data-ped]').forEach(b => b.onclick = () => paymentForm(s, S.payments.find(x => x.id === b.dataset.ped)));
+  document.querySelectorAll('[data-pdel]').forEach(b => b.onclick = () => deletePayment(S.payments.find(x => x.id === b.dataset.pdel)));
+  $('#sv-csv').onclick = () => exportSheet({ file: `كشف_حساب_${s.name}_${P.from}_${P.to}.xlsx`, title: `${CONFIG.title} — كشف حساب ${s.name}`,
+    sub: `من ${P.from} إلى ${P.to}   |   رصيد سابق: ${money(open)}   |   المتبقي بذمتي الآن: ${money(due)} د.ع`,
+    headers: ['التاريخ', 'البيان', 'رقم الوصل', 'فواتير (علي)', 'تسديدات (دفعت)', 'الرصيد'],
+    rows: [['', 'رصيد سابق', '', '', '', Math.round(open)], ...rows.map(r => [dt(r.ts), r.text, r.ref, r.debit ? Math.round(r.debit) : '', r.credit ? Math.round(r.credit) : '', Math.round(r.bal)])],
+    money: [3, 4, 5], totals: { label: 'المجموع', cols: [3, 4] } });
+  if ($('#sv-icsv')) $('#sv-icsv').onclick = () => exportSheet({ file: `مشتريات_${s.name}_${P.from}_${P.to}.xlsx`, title: `${CONFIG.title} — المواد المشتراة من ${s.name}`, sub: `من ${P.from} إلى ${P.to}`,
+    headers: ['المادة', 'الكمية', 'الوحدة', 'المبلغ (د.ع)', 'آخر سعر', 'لكل'],
+    rows: items.map(x => [x.name, r3(x.qty), x.unit, Math.round(x.amount), x.last, x.lastUnit]), qty: [1], money: [3, 4], totals: { label: 'المجموع', cols: [3] } });
+}
+function paymentForm(s, p) {
+  if (p && !canEdit()) return;
+  const due = supDue(s.id);
+  modal(`<h2>${ico('wallet')} ${p ? 'تعديل تسديد' : 'تسديد'} — ${esc(s.name)}</h2>
+    <p class="small muted" style="margin-top:-6px">المتبقي بذمتك حالياً: <b>${money(due)} د.ع</b>. التسديد ينحسب على حساب المورد كله.</p>
+    <div class="row">
+      <div class="field"><label>المبلغ <span class="req">*</span></label><input class="in" id="py-a" type="number" inputmode="decimal" min="0" step="any" value="${esc(p?.amount ?? '')}"></div>
+      <div class="field"><label>التاريخ <span class="req">*</span></label><input class="in" id="py-d" type="date" max="${today()}" value="${esc(p?.date || today())}"></div>
+    </div>
+    <div class="field"><label>طريقة الدفع</label><div class="seg paymode">${Object.entries(PAY_METHODS).map(([k, t]) => `<button data-pmt="${k}" class="${(p?.method || 'cash') === k ? 'on' : ''}">${t}</button>`).join('')}</div></div>
+    <div class="field"><label>ملاحظة</label><input class="in" id="py-n" value="${esc(p?.note)}"></div>
+    ${p ? `<div class="field"><label>سبب التعديل <span class="req">*</span></label><input class="in" id="py-why" placeholder="مثلاً: المبلغ انكتب غلط"></div>` : ''}
+    <div class="foot"><button class="btn" id="py-s">${ico('save')}${p ? 'حفظ التعديل' : 'تسجيل التسديد'}</button><button class="btn ghost" id="py-c">إلغاء</button></div>`,
+    (m, close) => {
+      let method = p?.method || 'cash';
+      m.querySelectorAll('[data-pmt]').forEach(b => b.onclick = () => { method = b.dataset.pmt; m.querySelectorAll('[data-pmt]').forEach(x => x.classList.toggle('on', x === b)); });
+      m.querySelector('#py-c').onclick = close;
+      m.querySelector('#py-s').onclick = async () => {
+        const amount = Math.round(+m.querySelector('#py-a').value || 0), date = m.querySelector('#py-d').value, note = normTxt(m.querySelector('#py-n').value);
+        if (!(amount > 0)) return toast('اكتب المبلغ', true);
+        if (!date || date > today()) return toast('اختر تاريخ صحيح', true);
+        const doc = { ts: p && p.date === date ? p.ts : dateTs(date), date, supplierId: s.id, supplierName: s.name, amount, method, note };
+        try {
+          if (!p) await B.add('payments', { ...doc, staffId: S.user.id, staffName: S.user.name });
+          else {
+            const why = m.querySelector('#py-why').value.trim(); if (!why) return toast('اكتب سبب التعديل', true);
+            const snap = x => ({ amount: x.amount, date: x.date, method: x.method, note: x.note || '' });
+            const before = snap(p), after = snap(doc);
+            const summary = [['المبلغ', money(before.amount), money(after.amount)], ['التاريخ', before.date, after.date], ['الطريقة', PAY_METHODS[before.method], PAY_METHODS[after.method]], ['ملاحظة', before.note, after.note]].filter(x => String(x[1]) !== String(x[2])).map(x => `${x[0]}: ${x[1] || '—'} ← ${x[2] || '—'}`);
+            if (!summary.length) return toast('ما غيّرت شي', true);
+            const aid = B.newId(), now = Date.now();
+            await B.batch([{ type: 'set', col: 'audit', id: aid, data: { ts: now, action: 'edit', kind: 'payment', paymentId: p.id, supplierName: s.name, moveTs: p.ts, moveStaff: p.staffName, by: S.user.name, byId: S.user.id, why, summary, before, after } },
+              { type: 'update', col: 'payments', id: p.id, data: { ...doc, lastAuditId: aid, editCount: (p.editCount || 0) + 1, editedBy: S.user.name, editedAt: now } }]);
+          }
+        } catch (e) { return toast('ما انحفظ: ' + e.message, true); }
+        close(); toast(p ? '✔ انعدل التسديد وانسجل التعديل' : `✔ انسجل تسديد ${money(amount)} د.ع`);
+      };
+    });
+}
+function deletePayment(p) {
+  if (!p || !canEdit()) return;
+  modal(`<h2>حذف تسديد</h2>
+    <p><b>${esc(supName(p))}</b> — ${M(p.amount)} د.ع ${PAY_METHODS[p.method] || ''}<br><span class="small muted">${esc(p.date)} — سجّلها ${esc(p.staffName)}</span></p>
+    <div class="field"><label>سبب الحذف <span class="req">*</span></label><input class="in" id="d-why" placeholder="مثلاً: انسجل مرتين"></div>
+    <div class="foot"><button class="btn danger" id="d-s">${ico('trash')}حذف</button><button class="btn ghost" id="d-c">إلغاء</button></div>`,
+    (md, close) => {
+      md.querySelector('#d-c').onclick = close;
+      md.querySelector('#d-s').onclick = async () => {
+        const why = md.querySelector('#d-why').value.trim();
+        if (!why) return toast('اكتب سبب الحذف', true);
+        const aid = B.newId(), now = Date.now();
+        try {
+          await B.batch([{ type: 'set', col: 'audit', id: aid, data: { ts: now, action: 'delete', kind: 'payment', paymentId: p.id, supplierName: supName(p), moveTs: p.ts, moveStaff: p.staffName, by: S.user.name, byId: S.user.id, why, before: { amount: p.amount, date: p.date, method: p.method, note: p.note || '' } } },
+            { type: 'update', col: 'payments', id: p.id, data: { deleted: true, deletedBy: S.user.name, deletedAt: now, lastAuditId: aid } }]);
+        } catch (e) { return toast('ما انحذف: ' + e.message, true); }
+        close(); toast('انحذف التسديد وانسجل بالمحذوفات');
+      };
+    });
+}
+
+/* ═════════════ Item card (بطاقة المادة) ═════════════ */
+function vItemCard() {
+  const it = itemById(S.itemCard);
+  if (!it) { S.itemCard = null; return vStock(); }
+  const locs = S.locations, bal = balances(), avg = avgCosts().get(it.id) || 0;
+  const per = locs.map(l => [l, bal.get(it.id + '|' + l.id) || 0]).filter(([l, v]) => Math.abs(v) > 0.0005 || (l.active !== false && S.moves.some(m => m.itemId === it.id && (m.toLoc === l.id || m.fromLoc === l.id))));
+  const total = per.reduce((a, [, v]) => a + v, 0);
+  let run = 0;
+  const rows = S.moves.filter(m => m.itemId === it.id).map(m => {
+    const eff = moveEffects(m), inQ = eff.filter(e => e[1] > 0).reduce((a, e) => a + e[1], 0), outQ = -eff.filter(e => e[1] < 0).reduce((a, e) => a + e[1], 0);
+    run += inQ - outQ; return { m, inQ, outQ, bal: run };
+  });
+  const buys = S.moves.filter(m => m.itemId === it.id && (m.type === 'in' || m.type === 'opening')).slice(-8).reverse();
+  const st = status(it, total);
+  $('#view-root').innerHTML = `
+    <div class="topline"><h1>${esc(it.name)} <span class="badge ${st[1]}" style="vertical-align:middle">${st[0]}</span></h1>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost sm" id="ic-back">${ico('back')}رجوع</button><button class="btn sm" id="ic-csv">${ico('download')}تصدير</button></div></div>
+    <p class="small muted" style="margin-top:-12px">${esc(grpOf(it))} — الوحدة الأساسية: ${esc(it.baseUnit)}${it.bigUnit ? ` — ${esc(it.bigUnit)} = ${fmt(packOf(it))} ${esc(it.baseUnit)}` : ''}${+it.minQty ? ` — حد الأمان: ${fmt(it.minQty)}` : ''}</p>
+    <div class="kpis">
+      <div class="kpi k-blue"><span class="ki">${ico('stock')}</span><div><div class="l">الرصيد الكلي</div><div class="v">${N(total)} <small class="small">${esc(it.baseUnit)}</small></div>${sub(detailed(it, total))}</div></div>
+      ${isAdmin() ? `<div class="kpi k-green"><span class="ki">${ico('wallet')}</span><div><div class="l">متوسط الكلفة / ${esc(it.baseUnit)}</div><div class="v">${M(avg)}</div>${sub(`القيمة: ${M(Math.max(total, 0) * avg)} د.ع`)}</div></div>` : ''}
+      <div class="kpi k-amber"><span class="ki">${ico('purchases')}</span><div><div class="l">آخر سعر شراء</div><div class="v">${buys[0] ? M(buys[0].invPrice ?? buys[0].price) : '—'}</div>${sub(buys[0] ? `لكل ${esc(buys[0].unit)} — ${esc(buys[0].supplierName || (buys[0].type === 'opening' ? 'رصيد افتتاحي' : 'وارد'))}` : '')}</div></div>
+    </div>
+    <div class="card"><h2>${ico('pin')} الرصيد بكل مخزن</h2>
+      ${per.length ? `<div class="locs">${per.map(([l, v]) => `<div class="loc"><span class="ki">${ico('pin')}</span><span><b>${esc(l.name)}</b><span class="${v < -0.0005 ? 't-waste' : ''}">${N(v)} ${esc(it.baseUnit)}${detailed(it, v) ? ' — ' + detailed(it, v) : ''}</span></span></div>`).join('')}</div>` : '<div class="empty">ما اكو رصيد</div>'}
+    </div>
+    <div class="card"><h2>${ico('purchases')} آخر أسعار الشراء</h2>
+      ${buys.length ? `<div class="tbl-wrap"><table><tr><th>التاريخ</th><th>المورد / الوصل</th><th class="num">الكمية</th><th class="num">سعر الوحدة</th>${isAdmin() ? '<th class="num">الكلفة بعد التوزيع</th>' : ''}</tr>
+        ${buys.map(m => `<tr>${dtCell(m.ts)}<td><b>${esc(m.supplierName || (m.type === 'opening' ? 'رصيد افتتاحي' : 'وارد بدون فاتورة'))}</b>${sub(m.ref ? 'وصل ' + esc(m.ref) : '')}</td><td class="num">${N(m.qty)} ${esc(m.unit)}</td><td class="num">${M(m.invPrice ?? m.price)}</td>${isAdmin() ? `<td class="num">${M(m.cost)}</td>` : ''}</tr>`).join('')}
+      </table></div>` : '<div class="empty">ما اكو مشتريات</div>'}
+    </div>
+    <div class="card"><h2>${ico('log')} الحركات والرصيد بعد كل حركة</h2>
+      ${rows.length ? `<div class="tbl-wrap"><table><tr><th>الوقت</th><th>النوع</th><th>المكان</th><th class="num">داخل</th><th class="num">طالع</th><th class="num">الرصيد بعدها</th></tr>
+        ${rows.slice().reverse().map(r => `<tr>${dtCell(r.m.ts)}<td class="t-${r.m.type}"><b class="tl">${ico(TYPES[r.m.type]?.ic)}${TYPES[r.m.type]?.label || r.m.type}</b>${sub(esc([r.m.supplierName, r.m.reason, r.m.staffName].filter(Boolean).join(' — ')))}</td>
+          <td class="small">${esc(moveText(r.m))}</td><td class="num">${r.inQ ? N(r.inQ) : ''}</td><td class="num">${r.outQ ? N(r.outQ) : ''}</td><td class="num ${r.bal < -0.0005 ? 'neg' : ''}"><b>${N(r.bal)}</b></td></tr>`).join('')}
+      </table></div>` : '<div class="empty">ما اكو حركات</div>'}
+    </div>`;
+  $('#ic-back').onclick = () => { S.itemCard = null; vStock(); window.scrollTo(0, 0); };
+  $('#ic-csv').onclick = () => exportSheet({ file: `بطاقة_مادة_${it.name}_${today()}.xlsx`, title: `${CONFIG.title} — بطاقة مادة: ${it.name}`,
+    sub: `الرصيد الكلي: ${fmt(total)} ${it.baseUnit}   |   ${per.map(([l, v]) => `${l.name}: ${fmt(v)}`).join('   |   ')}${isAdmin() ? `   |   متوسط الكلفة: ${money(avg)}` : ''}   |   بتاريخ: ${dt(Date.now())}`,
+    headers: ['التاريخ', 'النوع', 'المكان', 'داخل', 'طالع', 'الرصيد بعدها', 'الوحدة', 'المورد / السبب', 'الموظف', ...(isAdmin() ? ['الكلفة'] : [])],
+    rows: rows.map(r => [dt(r.m.ts), TYPES[r.m.type]?.label || r.m.type, moveText(r.m), r.inQ ? r3(r.inQ) : '', r.outQ ? r3(r.outQ) : '', r3(r.bal), it.baseUnit, [r.m.supplierName, r.m.reason, r.m.ref].filter(Boolean).join(' — '), r.m.staffName, ...(isAdmin() ? [r.m.cost || ''] : [])]),
+    qty: [3, 4, 5], money: isAdmin() ? [9] : [] });
+}
+
 /* ═════════════ Admin ═════════════ */
 function vAdmin() {
   const tab = S.adminTab;
@@ -957,11 +1560,12 @@ function vAdmin() {
       <button data-tab="items" class="${tab === 'items' ? 'on' : ''}">المواد</button>
       <button data-tab="locations" class="${tab === 'locations' ? 'on' : ''}">أماكن الخزن</button>
       <button data-tab="staff" class="${tab === 'staff' ? 'on' : ''}">الموظفين</button>
+      <button data-tab="suppliers" class="${tab === 'suppliers' ? 'on' : ''}">الموردين</button>
       <button data-tab="system" class="${tab === 'system' ? 'on' : ''}">النظام</button>
     </div>
     <div class="card" id="adm"></div>`;
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.adminTab = b.dataset.tab; vAdmin(); });
-  ({ items: admItems, locations: admLocs, staff: admStaff, system: admSystem })[tab]();
+  ({ items: admItems, locations: admLocs, staff: admStaff, suppliers: () => vSuppliers($('#adm')), system: admSystem })[tab]();
 }
 const used = (field, id) => S.moves.some(m => m[field] === id);
 function admItems() {
@@ -1238,7 +1842,7 @@ function admSystem() {
     <button class="btn" id="imp">${ico('upload')}اختيار ملف الإكسل</button>
     <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
     <h2>النسخة الاحتياطية</h2>
-    <p class="small muted">ينزّل ملف بيه كل البيانات (المواد، الأماكن، الموظفين، كل الحركات، الجرودات). احتفظ بيه بمكان آمن. يُنصح كل أسبوع أو كل شهر.</p>
+    <p class="small muted">ينزّل ملف بيه كل البيانات (المواد، الأماكن، الموظفين، كل الحركات، الجرودات، الموردين والفواتير والتسديدات). احتفظ بيه بمكان آمن. يُنصح كل أسبوع أو كل شهر.</p>
     <p class="small">آخر نسخة من هذا الجهاز: <b>${last ? dt(+last) : 'ما اكو'}</b></p>
     <button class="btn" id="bk">${ico('download')}تنزيل نسخة احتياطية</button>
     <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
@@ -1248,7 +1852,7 @@ function admSystem() {
   $('#imp').onclick = () => $('#imp-f').click();
   $('#imp-f').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importExcel(f); };
   $('#bk').onclick = () => {
-    const data = { exportedAt: new Date().toISOString(), title: CONFIG.title, items: S.items, locations: S.locations, staff: S.staff.map(({ pinHash, ...x }) => x), moves: S.allMoves, stocktakes: S.stocktakes, audit: S.audit };
+    const data = { exportedAt: new Date().toISOString(), title: CONFIG.title, items: S.items, locations: S.locations, staff: S.staff.map(({ pinHash, ...x }) => x), moves: S.allMoves, stocktakes: S.stocktakes, audit: S.audit, suppliers: S.suppliers, invoices: S.invoices, payments: S.payments };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
     a.download = `نسخة_احتياطية_${today()}.json`; a.click();
