@@ -7,11 +7,22 @@
    كل حركة أقل من 0.4 ثانية، وكلها تنطفي مع prefers-reduced-motion. */
 (() => {
   const g = window.gsap;
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+  // علامة صغيرة تبين حالة الحركات حتى نعرف السبب إذا ما بانت
+  const badge = document.createElement('div');
+  badge.className = 'lab-badge';
+  const setBadge = () => {
+    badge.textContent = !g ? 'نسخة تجريبية — GSAP ما انحمّل (تأكد من الإنترنت)'
+      : reduce.matches ? 'نسخة تجريبية — الحركات مطفية: الجهاز مفعّل عليه «تقليل الحركة»'
+      : 'نسخة تجريبية — حركات GSAP شغالة';
+    badge.classList.toggle('off', !g || reduce.matches);
+  };
+  setBadge(); reduce.addEventListener?.('change', setBadge);
+  document.body.appendChild(badge);
   if (!g) return; // إذا GSAP ما انحمّل، الموقع يشتغل عادي بدون حركات
   document.documentElement.classList.add('lab-gsap');
   document.title = 'LAB — ' + document.title;
 
-  const reduce = matchMedia('(prefers-reduced-motion: reduce)');
   const on = () => !reduce.matches;
   const T = { enter: 0.3, stagger: 0.035, y: 10, count: 0.35, open: 0.25, close: 0.16, press: 0.15, release: 0.2 };
   const EASE = 'power1.out';
@@ -94,8 +105,4 @@
   });
   ['pointerup', 'pointercancel', 'blur'].forEach(t => window.addEventListener(t, release, true));
 
-  /* علامة صغيرة حتى تعرف إنك بالنسخة التجريبية */
-  const badge = document.createElement('div');
-  badge.className = 'lab-badge'; badge.textContent = 'نسخة تجريبية — حركات GSAP';
-  document.body.appendChild(badge);
 })();
