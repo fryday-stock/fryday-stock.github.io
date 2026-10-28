@@ -2103,8 +2103,7 @@ function admStorage() {
       <div class="kpi k-blue"><span class="ki">${ico('image')}</span><div><div class="l">صور الفواتير</div><div class="v">${e.imgs}</div>${sub(mb(e.imgBytes) + ' تقريباً')}</div></div>
       <div class="kpi k-green"><span class="ki">${ico('log')}</span><div><div class="l">باقي البيانات</div><div class="v">${mb(e.other)}</div>${sub('المواد، الحركات، الفواتير، السجل')}</div></div>
       <div class="kpi k-amber"><span class="ki">${ico('camera')}</span><div><div class="l">يتحمل بعد</div><div class="v">~${left.toLocaleString('en-US')}</div>${sub('صورة تقريباً')}</div></div>
-    </div>
-    <p class="small muted">هذا <b>تقدير</b> محسوب من عدد الصور وحجم البيانات. الرقم الدقيق: Firebase Console ← Firestore Database ← تبويب Usage. الصور المحذوفة تبقى بالقاعدة (حتى يبقى السجل كامل) فتنحسب.</p>`;
+    </div>`;
 }
 function admSystem() {
   const last = localStorage.getItem('inv_last_backup');
