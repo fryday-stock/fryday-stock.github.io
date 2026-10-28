@@ -2104,15 +2104,7 @@ function admStorage() {
       <div class="kpi k-green"><span class="ki">${ico('log')}</span><div><div class="l">باقي البيانات</div><div class="v">${mb(e.other)}</div>${sub('المواد، الحركات، الفواتير، السجل')}</div></div>
       <div class="kpi k-amber"><span class="ki">${ico('camera')}</span><div><div class="l">يتحمل بعد</div><div class="v">~${left.toLocaleString('en-US')}</div>${sub('صورة تقريباً')}</div></div>
     </div>
-    <p class="small muted">هذا <b>تقدير</b> محسوب من عدد الصور وحجم البيانات. الرقم الدقيق: Firebase Console ← Firestore Database ← تبويب Usage. الصور المحذوفة تبقى بالقاعدة (حتى يبقى السجل كامل) فتنحسب.</p>
-    <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
-    <h2>${ico('wallet')} لما توصل التحذير</h2>
-    <ol class="small store-steps">
-      <li>Firebase Console ← مشروع stock-dc518 ← Upgrade ← خطة <b>Blaze</b> (تربط بطاقة، والدفع شهري حسب الاستخدام).</li>
-      <li>الـ 1GB الأول يبقى مجاني؛ الزيادة تقريباً 0.18–0.21$ لكل GB بالشهر.</li>
-      <li>حط <b>Budget alert</b> (مثلاً 2$ بالشهر) حتى يوصلك إيميل إذا الكلفة زادت.</li>
-      <li>گلّي حتى أرفع الحد هنا (storageLimitGB) وينطفي التحذير.</li>
-    </ol>`;
+    <p class="small muted">هذا <b>تقدير</b> محسوب من عدد الصور وحجم البيانات. الرقم الدقيق: Firebase Console ← Firestore Database ← تبويب Usage. الصور المحذوفة تبقى بالقاعدة (حتى يبقى السجل كامل) فتنحسب.</p>`;
 }
 function admSystem() {
   const last = localStorage.getItem('inv_last_backup');

@@ -392,7 +392,6 @@ tr.grp svg.i{opacity:.8;margin-inline-end:2px}
 .store-alert div{display:flex;flex-direction:column;gap:2px}
 .store-alert span{font-size:13.5px}
 .store-meter + .store-alert{margin-top:14px}
-.store-steps{padding-inline-start:20px;line-height:1.9}
 
 /* بعض المتصفحات (سامسونگ) ما تفرض الظلام إذا الموقع يصرّح بدعم الوضع الداكن؛ نخليه نفس الألوان الفاتحة */
 @media (prefers-color-scheme:dark){:root{color-scheme:only light}html,body{background:var(--bg);color:var(--ink)}}
