@@ -30,7 +30,19 @@ service cloud.firestore {
 
     // فواتير المشتريات والتسديدات: نفس حماية الحركات.
     // تنضاف، وما تنمسح نهائياً، وأي تعديل أو حذف لازم يجي وياه سجل جديد بـ audit.
+    // الاستثناء الوحيد: تحديث عداد الصور (imageCount) لحاله، لأن إضافة صورة إضافة مو تعديل
     match /invoices/{id} {
+      allow read, create: if device();
+      allow update: if device() && (
+        (request.resource.data.lastAuditId is string
+          && request.resource.data.lastAuditId != resource.data.get('lastAuditId', '')
+          && existsAfter(/databases/$(database)/documents/audit/$(request.resource.data.lastAuditId)))
+        || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['imageCount'])
+          && request.resource.data.imageCount is int
+          && request.resource.data.imageCount >= 0));
+      allow delete: if false;
+    }
+    match /payments/{id} {
       allow read, create: if device();
       allow update: if device()
         && request.resource.data.lastAuditId is string
@@ -38,9 +50,17 @@ service cloud.firestore {
         && existsAfter(/databases/$(database)/documents/audit/$(request.resource.data.lastAuditId));
       allow delete: if false;
     }
-    match /payments/{id} {
-      allow read, create: if device();
+
+    // صور الفواتير: كل صورة وثيقة منفصلة (مضغوطة ~250KB). الحد الأعلى 700KB نص.
+    // ما تنمسح نهائياً؛ الحذف = تعليمها محذوفة ويا سجل audit، والصورة نفسها ما تتغيّر.
+    match /invoiceImages/{id} {
+      allow read: if device();
+      allow create: if device()
+        && request.resource.data.data is string
+        && request.resource.data.data.size() < 700000
+        && request.resource.data.invoiceId is string;
       allow update: if device()
+        && request.resource.data.data == resource.data.data
         && request.resource.data.lastAuditId is string
         && request.resource.data.lastAuditId != resource.data.get('lastAuditId', '')
         && existsAfter(/databases/$(database)/documents/audit/$(request.resource.data.lastAuditId));

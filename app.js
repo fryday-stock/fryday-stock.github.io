@@ -22,6 +22,9 @@ function localBackend() {
     async update(c, id, patch) { write(c, read(c).map(x => x.id === id ? { ...x, ...patch } : x)); },
     async remove(c, id) { write(c, read(c).filter(x => x.id !== id)); },
     newId: () => uid(),
+    // صور الفواتير ما تنراقب، تنجاب عند الحاجة
+    async images(invoiceId) { return read('invoiceImages').filter(x => x.invoiceId === invoiceId && !x.deleted).sort((a, b) => a.ts - b.ts); },
+    async allImages() { return read('invoiceImages'); },
     async batch(ops) {
       for (const o of ops) {
         if (o.type === 'set') write(o.col, [...read(o.col).filter(x => x.id !== o.id), { ...o.data, id: o.id }]);
@@ -59,6 +62,12 @@ async function firebaseBackend(cfg) {
     async update(c, id, patch) { await fs.updateDoc(fs.doc(db, c, id), patch); },
     async remove(c, id) { await fs.deleteDoc(fs.doc(db, c, id)); },
     newId: () => fs.doc(fs.collection(db, 'audit')).id,
+    // صور الفواتير ما تنراقب، تنجاب عند الحاجة
+    async images(invoiceId) {
+      const s = await fs.getDocs(fs.query(fs.collection(db, 'invoiceImages'), fs.where('invoiceId', '==', invoiceId)));
+      return s.docs.map(d => ({ ...d.data(), id: d.id })).filter(x => !x.deleted).sort((a, b) => a.ts - b.ts);
+    },
+    async allImages() { return (await fs.getDocs(fs.collection(db, 'invoiceImages'))).docs.map(d => ({ ...d.data(), id: d.id })); },
     async batch(ops) {
       for (let i = 0; i < ops.length; i += 450) {
         const b = fs.writeBatch(db);
@@ -161,7 +170,12 @@ const ICONS = {
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13 7 4 4"/>',
   trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 14h10l1-14"/>',
   purchases: '<circle cx="9" cy="20" r="1.5"/><circle cx="18" cy="20" r="1.5"/><path d="M3 4h2l2.4 11h11.2L21 8H6.2"/>',
-  back: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>'
+  back: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
+  camera: '<path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/>',
+  image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-8 9"/>',
+  x: '<path d="M6 6l12 12M18 6 6 18"/>',
+  minus: '<path d="M5 12h14"/>',
+  reset: '<path d="M4 12a8 8 0 1 0 2.3-5.7L4 8.6"/><path d="M4 4v4.6h4.6"/>'
 };
 /* وصف بطاقات الحركات بالرئيسية (عرض فقط) */
 const ACT_DESC = { in: 'استلام بضاعة من المورد', out: 'صرف مواد للمطبخ أو الأقسام', transfer: 'نقل بين المخازن', waste: 'تسجيل مواد تالفة أو منتهية', return: 'إرجاع بضاعة للمورد' };
@@ -795,6 +809,7 @@ function deleteMove(m) {
 }
 const audWhat = x => x.kind === 'invoice'
   ? `<td class="t-in"><b class="tl">${ico('purchases')}فاتورة مشتريات</b> — ${esc(x.supplierName)}${sub(x.ref ? 'وصل ' + esc(x.ref) : '')}</td>`
+  : x.kind === 'image' ? `<td class="t-in"><b class="tl">${ico('image')}صورة فاتورة</b> — ${esc(x.supplierName)}${sub(x.ref ? 'وصل ' + esc(x.ref) : '')}</td>`
   : `<td class="t-transfer"><b class="tl">${ico('wallet')}تسديد</b> — ${esc(x.supplierName)}</td>`;
 function vAudit() {
   const a = S.aud;
@@ -820,7 +835,8 @@ function vAudit() {
     : (dels.length ? `<table>
       <tr><th>وقت الحذف</th><th>منو حذف</th><th>الحركة المحذوفة</th><th class="num">الكمية</th><th>المكان</th><th>السبب</th><th>سجّلها أصلاً</th></tr>
       ${dels.map(x => `<tr>${dtCell(x.ts)}<td><b>${esc(x.by)}</b></td>
-        ${x.kind ? `${audWhat(x)}<td class="num">${M(x.kind === 'invoice' ? x.before?.total : x.before?.amount)} د.ع</td><td class="small">${esc(x.kind === 'invoice' ? locName(x.before?.locId) + ' — ' + (x.before?.lines || []).length + ' مادة' : PAY_METHODS[x.before?.method] || '')}</td>`
+        ${x.kind === 'image' ? `${audWhat(x)}<td class="num">${Math.round((x.before?.bytes || 0) / 1024)}KB</td><td class="small"></td>`
+        : x.kind ? `${audWhat(x)}<td class="num">${M(x.kind === 'invoice' ? x.before?.total : x.before?.amount)} د.ع</td><td class="small">${esc(x.kind === 'invoice' ? locName(x.before?.locId) + ' — ' + (x.before?.lines || []).length + ' مادة' : PAY_METHODS[x.before?.method] || '')}</td>`
         : `<td class="t-${x.moveType}"><b>${TYPES[x.moveType]?.label || ''}</b> — ${esc(x.itemName)}</td>
         <td class="num">${N(x.before?.qty)} ${esc(x.before?.unit)}</td><td class="small">${esc(where(x.moveType, x.before || {}))}</td>`}
         <td class="small">${esc(x.why)}</td><td class="small">${esc(x.moveStaff)}<br><span class="muted">${dt(x.moveTs)}</span></td></tr>`).join('')}
@@ -997,7 +1013,7 @@ function supDue(id, upTo = Infinity) {
 const newLine = () => ({ itemId: '', unit: '', qty: '', price: '', q: '' });
 function newInv() {
   const locs = activeLocs();
-  return { supplierId: '', ref: '', date: today(), locId: locs.length === 1 ? locs[0].id : (S.inv?.locId || ''), note: '', lines: [newLine()], transport: '', loading: '', discount: '', payMode: 'credit', paid: '' };
+  return { supplierId: '', ref: '', date: today(), locId: locs.length === 1 ? locs[0].id : (S.inv?.locId || ''), note: '', lines: [newLine()], transport: '', loading: '', discount: '', payMode: 'credit', paid: '', imgs: [] };
 }
 function invCalc(inv) {
   const lines = inv.lines.map(l => {
@@ -1093,6 +1109,11 @@ function vInvForm() {
       <div id="iv-lines">${inv.lines.map(lineRow).join('')}</div>
       <button class="btn ghost" id="iv-add">${ico('plus')}سطر جديد</button>
     </div>
+    <div class="card">
+      <div class="card-head"><h2>${ico('camera')} صور الفاتورة</h2>${pickButtons('iv')}</div>
+      ${old && +old.imageCount > 0 ? `<p class="hint" style="margin-top:0">بالفاتورة ${old.imageCount} صورة محفوظة (تنعرض من «عرض» الفاتورة). الصور اللي تضيفها هنا تنضاف وياها.</p>` : ''}
+      <div id="iv-imgs">${thumbsHtml((inv.imgs || []).map(x => ({ ...x, pending: true })), { removable: true })}</div>
+    </div>
     <div class="two">
       <div class="card">
         <h2>${ico('wallet')} مبالغ إضافية وخصم</h2>
@@ -1122,8 +1143,16 @@ function vInvForm() {
   $('#iv-add').onclick = () => { inv.lines.push(newLine()); vInvForm(); document.querySelector(`[data-pick="${inv.lines.length - 1}"]`)?.focus(); };
   $('#iv-newsup').onclick = () => supplierForm(null, id => { inv.supplierId = id; vInvForm(); });
   $('#iv-save').onclick = saveInvoice;
+  bindPick($('#pur'), 'iv', imgs => { inv.imgs = [...(inv.imgs || []), ...imgs]; drawFormImgs(); });
+  drawFormImgs();
   if ($('#iv-cancel')) $('#iv-cancel').onclick = () => { S.inv = null; S.pur.tab = 'list'; vPurch(); };
   invRefresh();
+}
+function drawFormImgs() {
+  const box = $('#iv-imgs'), imgs = S.inv?.imgs || []; if (!box) return;
+  box.innerHTML = thumbsHtml(imgs.map(x => ({ ...x, pending: true })), { removable: true });
+  box.querySelectorAll('[data-thumb]').forEach(b => b.onclick = () => imageViewer(imgs.map(x => x.data), +b.dataset.thumb, 'صور الفاتورة'));
+  box.querySelectorAll('[data-thumb-del]').forEach(b => b.onclick = () => { S.inv.imgs.splice(+b.dataset.thumbDel, 1); drawFormImgs(); });
 }
 function setupLinePicker(q) {
   const i = +q.dataset.pick, list = q.nextElementSibling, l = S.inv.lines[i];
@@ -1204,6 +1233,8 @@ async function saveInvoice() {
   });
   const head = { ts, date: inv.date, supplierId: sup.id, supplierName: sup.name, ref: inv.ref.trim(), locId: inv.locId, note: inv.note.trim(),
     lines: recLines, subtotal: Math.round(c.subtotal), transport: c.transport, loading: c.loading, discount: c.discount, total: Math.round(c.total), payMode: inv.payMode, paid: Math.round(c.paid) };
+  const newImgs = inv.imgs || [];
+  if (newImgs.length || old?.imageCount) head.imageCount = (old?.imageCount || 0) + newImgs.length;
   const moveDoc = l => ({ ts, type: 'in', itemId: l.itemId, itemName: l.itemName, unit: l.unit, qty: l.qty, factor: l.factor, baseQty: l.baseQty, baseUnit: l.baseUnit,
     price: l.qty ? Math.round(l.cost / l.qty * 100) / 100 : 0, cost: l.cost, fromLoc: '', toLoc: inv.locId, reason: '', ref: head.ref, note: '',
     invoiceId: invId, supplierId: sup.id, supplierName: sup.name, invPrice: l.price, extra: l.share });
@@ -1212,6 +1243,7 @@ async function saveInvoice() {
     recLines.forEach(l => ops.push({ type: 'set', col: 'moves', id: l.moveId, data: { ...moveDoc(l), staffId: S.user.id, staffName: S.user.name } }));
   } else {
     const before = invSnap(old), after = invSnap({ ...old, ...head }), summary = invDiff(before, after);
+    if (newImgs.length) summary.push(`ضاف ${newImgs.length} صورة`);
     if (!summary.length) return toast('ما غيّرت شي', true);
     const aid = B.newId(), edit = { lastAuditId: aid, editedBy: S.user.name, editedAt: now };
     ops.push({ type: 'set', col: 'audit', id: aid, data: { ts: now, action: 'edit', kind: 'invoice', invoiceId: old.id, supplierName: sup.name, ref: head.ref, moveTs: old.ts, moveStaff: old.staffName, by: S.user.name, byId: S.user.id, why, summary, before, after } });
@@ -1227,6 +1259,12 @@ async function saveInvoice() {
   $('#iv-save').disabled = true;
   try { await B.batch(ops); }
   catch (e) { $('#iv-save').disabled = false; return toast('ما انحفظت: ' + e.message, true); }
+  // الصور بطلبات منفصلة (8 بكل طلب) حتى ما يكبر طلب الفاتورة (حد Firestore 10MB)
+  if (newImgs.length) {
+    toast(`جاري حفظ ${newImgs.length} صورة…`);
+    try { await addInvoiceImages({ id: invId, supplierId: sup.id }, newImgs); imgCache.delete(invId); }
+    catch (e) { toast('الفاتورة انحفظت بس الصور ما انحفظت: ' + e.message + ' — ضيفها من «عرض» الفاتورة', true); S.inv = null; S.pur.tab = 'list'; return vPurch(); }
+  }
   toast(old ? '✔ انعدلت الفاتورة وانسجل التعديل' : `✔ انحفظت الفاتورة: ${recLines.length} مادة — ${money(head.total)} د.ع`);
   const keepLoc = inv.locId;
   S.inv = old ? null : { ...newInv(), locId: keepLoc };
@@ -1261,7 +1299,7 @@ function vInvList() {
       ${list.length ? `<div class="sumbar"><span><span class="muted small">الفواتير</span><b>${list.length}</b></span><span><span class="muted small">الإجمالي</span><b>${M(sum('total'))} د.ع</b></span><span><span class="muted small">المدفوع</span><b>${M(sum('paid'))} د.ع</b></span><span><span class="muted small">المتبقي منها</span><b>${M(sum('total') - sum('paid'))} د.ع</b></span></div>` : ''}
       <div class="tbl-wrap">${list.length ? `<table>
         <tr><th>التاريخ</th><th>المورد / الوصل</th><th>المخزن</th><th class="num">المواد</th><th class="num">الإجمالي</th><th class="num">المدفوع</th><th class="num">المتبقي</th><th>الحالة</th><th></th></tr>
-        ${list.map(v => { const s = st(v); return `<tr>${dtCell(v.ts)}<td><b>${esc(supName(v))}</b>${sub(v.ref ? 'وصل ' + esc(v.ref) : '')}${v.editCount ? ' <span class="badge b-warn">معدّلة</span>' : ''}</td><td class="small">${esc(locName(v.locId))}</td><td class="num">${(v.lines || []).length}</td><td class="num"><b>${M(v.total)}</b></td><td class="num">${M(v.paid)}</td><td class="num ${v.total - v.paid > 0.5 ? 'neg' : ''}">${M(v.total - v.paid)}</td><td><span class="badge ${s[1]}">${s[0]}</span></td>
+        ${list.map(v => { const s = st(v); return `<tr>${dtCell(v.ts)}<td><b>${esc(supName(v))}</b>${sub(v.ref ? 'وصل ' + esc(v.ref) : '')}${v.editCount ? ' <span class="badge b-warn">معدّلة</span>' : ''}</td><td class="small">${esc(locName(v.locId))}</td><td class="num">${(v.lines || []).length}${imgBadge(v)}</td><td class="num"><b>${M(v.total)}</b></td><td class="num">${M(v.paid)}</td><td class="num ${v.total - v.paid > 0.5 ? 'neg' : ''}">${M(v.total - v.paid)}</td><td><span class="badge ${s[1]}">${s[0]}</span></td>
           <td style="white-space:nowrap"><button class="link" data-view="${v.id}">${ico('log')}عرض</button>${canEdit() ? `<button class="link" data-ied="${v.id}">${ico('edit')}تعديل</button><button class="link bad" data-idel="${v.id}">${ico('trash')}حذف</button>` : ''}</td></tr>`; }).join('')}
       </table>` : `<div class="empty">ما اكو فواتير بهذي الفترة</div>`}</div>
     </div>`;
@@ -1270,6 +1308,7 @@ function vInvList() {
   bindInvActions();
 }
 function bindInvActions() {
+  bindImgLinks();
   document.querySelectorAll('[data-view]').forEach(b => b.onclick = () => viewInvoice(S.invoices.find(x => x.id === b.dataset.view)));
   document.querySelectorAll('[data-ied]').forEach(b => b.onclick = () => editInvoice(S.invoices.find(x => x.id === b.dataset.ied)));
   document.querySelectorAll('[data-idel]').forEach(b => b.onclick = () => deleteInvoice(S.invoices.find(x => x.id === b.dataset.idel)));
@@ -1288,13 +1327,40 @@ function viewInvoice(v) {
       <div class="tl-row"><span>${PAY_MODES[v.payMode] || ''} — المدفوع</span><b>${M(v.paid)}</b></div>
       <div class="tl-row ${v.total - v.paid > 0.5 ? 'due' : ''}"><span>المتبقي</span><b>${M(v.total - v.paid)}</b></div>
     </div>
-    <div class="foot"><button class="btn ghost" id="vw-c">إغلاق</button></div>`, (m, close) => { m.querySelector('#vw-c').onclick = close; });
+    <div class="vw-imgs">
+      <div class="card-head"><h2>${ico('camera')} صور الفاتورة</h2>${v.deleted ? '' : pickButtons('vw')}</div>
+      <div id="vw-imgs">${thumbsHtml([], { loading: true })}</div>
+    </div>
+    <div class="foot"><button class="btn ghost" id="vw-c">إغلاق</button></div>`, (m, close) => {
+      m.querySelector('#vw-c').onclick = close;
+      const draw = async (fresh = false) => {
+        const box = m.querySelector('#vw-imgs'); if (!box) return;
+        let list;
+        try { list = await invoiceImages(v.id, fresh); } catch (e) { box.innerHTML = `<div class="hint bad">تعذّر تحميل الصور: ${esc(e.message)}</div>`; return; }
+        if (!box.isConnected) return;
+        const canDel = canEdit() && !v.deleted;
+        box.innerHTML = thumbsHtml(list, { removable: canDel });
+        box.querySelectorAll('[data-thumb]').forEach(b => b.onclick = () => imageViewer(list.map(x => x.data), +b.dataset.thumb, `فاتورة ${supName(v)}`));
+        box.querySelectorAll('[data-thumb-del]').forEach(b => b.onclick = async () => {
+          const im = list[+b.dataset.thumbDel];
+          const why = await askWhy('سبب حذف الصورة', 'مثلاً: صورة غلط أو مكررة');
+          if (!why) return viewInvoice(S.invoices.find(x => x.id === v.id) || v);
+          try { await deleteInvoiceImage(v, im, why); } catch (e) { return toast('ما انحذفت: ' + e.message, true); }
+          toast('انحذفت الصورة وانسجلت بالمحذوفات'); viewInvoice(S.invoices.find(x => x.id === v.id) || v);
+        });
+      };
+      if (!v.deleted) bindPick(m, 'vw', async imgs => {
+        try { await appendImages(v, imgs); } catch (e) { return toast('ما انحفظت الصور: ' + e.message, true); }
+        toast(`✔ انضافت ${imgs.length} صورة`); draw(true);
+      });
+      draw();
+    });
 }
 function editInvoice(v) {
   if (!v || !canEdit()) return;
   S.inv = { id: v.id, supplierId: v.supplierId, ref: v.ref || '', date: v.date, locId: v.locId, note: v.note || '',
     lines: (v.lines || []).map(l => ({ moveId: l.moveId, itemId: l.itemId, unit: l.unit, qty: String(l.qty), price: String(l.price), q: '' })),
-    transport: v.transport ? String(v.transport) : '', loading: v.loading ? String(v.loading) : '', discount: v.discount ? String(v.discount) : '', payMode: v.payMode || 'credit', paid: v.payMode === 'partial' ? String(v.paid) : '' };
+    transport: v.transport ? String(v.transport) : '', loading: v.loading ? String(v.loading) : '', discount: v.discount ? String(v.discount) : '', payMode: v.payMode || 'credit', paid: v.payMode === 'partial' ? String(v.paid) : '', imgs: [] };
   go('purchases', { tab: 'new' });
 }
 function deleteInvoice(v) {
@@ -1418,7 +1484,7 @@ function vSupplier() {
         <tr class="grp"><td colspan="4"><b>رصيد سابق</b> <span class="small muted">— قبل ${P.from}</span></td><td class="num"><b>${M(open)}</b></td><td></td></tr>
         ${rows.map(r => `<tr>${dtCell(r.ts)}<td><b class="${r.kind === 'inv' ? 't-in' : r.kind === 'pay' ? 't-transfer' : ''}">${esc(r.text)}</b>${sub(r.ref ? 'وصل ' + esc(r.ref) : r.pay ? 'سجّلها ' + esc(r.pay.staffName) : '')}${(r.inv || r.pay)?.editCount && r.kind !== 'paidnow' ? ' <span class="badge b-warn">معدّلة</span>' : ''}</td>
           <td class="num">${r.debit ? M(r.debit) : ''}</td><td class="num">${r.credit ? M(r.credit) : ''}</td><td class="num"><b>${M(r.bal)}</b></td>
-          <td style="white-space:nowrap">${r.kind === 'inv' ? `<button class="link" data-view="${r.inv.id}">${ico('log')}عرض</button>${canEdit() ? `<button class="link" data-ied="${r.inv.id}">${ico('edit')}</button><button class="link bad" data-idel="${r.inv.id}">${ico('trash')}</button>` : ''}`
+          <td style="white-space:nowrap">${r.kind === 'inv' ? `${imgBadge(r.inv)}<button class="link" data-view="${r.inv.id}">${ico('log')}عرض</button>${canEdit() ? `<button class="link" data-ied="${r.inv.id}">${ico('edit')}</button><button class="link bad" data-idel="${r.inv.id}">${ico('trash')}</button>` : ''}`
             : r.kind === 'pay' && canEdit() ? `<button class="link" data-ped="${r.pay.id}">${ico('edit')}تعديل</button><button class="link bad" data-pdel="${r.pay.id}">${ico('trash')}حذف</button>` : ''}</td></tr>`).join('')}
         ${rows.length ? '' : `<tr><td colspan="6" class="empty">ما اكو حركات بهذي الفترة</td></tr>`}
       </table></div>
@@ -1503,6 +1569,172 @@ function deletePayment(p) {
         close(); toast('انحذف التسديد وانسجل بالمحذوفات');
       };
     });
+}
+
+/* ═════════════ Invoice images (صور الفواتير) ═════════════
+   نفس أسلوب fryday-store: الصورة تنضغط بالمتصفح لحوالي 250KB (JPEG) وتنحفظ كوثيقة منفصلة
+   بمجموعة invoiceImages (مو داخل الفاتورة)، بدون Firebase Storage. الفاتورة بيها عداد imageCount بس.
+   الصور ما تنحمّل ويا البيانات؛ تنجاب لما تنفتح الفاتورة (B.images). الحذف = deleted ويا audit. */
+const IMG_TARGET = 250 * 1024, IMG_MAX_SIDE = 1800, IMG_BATCH = 8;
+const imgBytes = d => Math.round((d.length - d.indexOf(',') - 1) * 3 / 4);
+async function loadImg(file) {
+  if ('createImageBitmap' in window) {
+    try { const b = await createImageBitmap(file, { imageOrientation: 'from-image' }); return { w: b.width, h: b.height, draw: (c, w, h) => c.drawImage(b, 0, 0, w, h) }; }
+    catch { /* نجرب الطريقة الثانية */ }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('ملف الصورة غير صالح')); i.src = url; });
+    return { w: img.naturalWidth, h: img.naturalHeight, draw: (c, w, h) => c.drawImage(img, 0, 0, w, h) };
+  } finally { setTimeout(() => URL.revokeObjectURL(url), 1000); }
+}
+// ضغط لحوالي 250KB: بحث ثنائي على جودة JPEG، وإذا ما كفى نصغّر الأبعاد
+async function compressImage(file, target = IMG_TARGET) {
+  const src = await loadImg(file);
+  let scale = Math.min(1, IMG_MAX_SIDE / Math.max(src.w, src.h));
+  const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
+  for (let round = 0; round < 6; round++) {
+    const w = Math.max(1, Math.round(src.w * scale)), h = Math.max(1, Math.round(src.h * scale));
+    canvas.width = w; canvas.height = h;
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); src.draw(ctx, w, h);
+    let lo = 0.35, hi = 0.92, best = '';
+    for (let i = 0; i < 7; i++) { const q = (lo + hi) / 2, d = canvas.toDataURL('image/jpeg', q); if (imgBytes(d) <= target) { best = d; lo = q; } else hi = q; }
+    if (best) return { data: best, w, h, bytes: imgBytes(best) };
+    scale *= 0.75;
+  }
+  const d = canvas.toDataURL('image/jpeg', 0.35);
+  return { data: d, w: canvas.width, h: canvas.height, bytes: imgBytes(d) };
+}
+// أزرار الكاميرا والمعرض: ترجع الصور مضغوطة
+function pickButtons(id) {
+  return `<div class="pick-btns">
+    <input type="file" accept="image/*" capture="environment" hidden data-pick-cam="${id}">
+    <input type="file" accept="image/*" multiple hidden data-pick-gal="${id}">
+    <button class="btn ghost sm" data-pick-btn="cam" data-for="${id}">${ico('camera')}الكاميرا</button>
+    <button class="btn ghost sm" data-pick-btn="gal" data-for="${id}">${ico('image')}المعرض</button>
+  </div>`;
+}
+function bindPick(scope, id, onAdd) {
+  const cam = scope.querySelector(`[data-pick-cam="${id}"]`), gal = scope.querySelector(`[data-pick-gal="${id}"]`);
+  const btns = scope.querySelectorAll(`[data-for="${id}"]`);
+  btns.forEach(b => b.onclick = () => (b.dataset.pickBtn === 'cam' ? cam : gal).click());
+  const handle = async input => {
+    const files = [...(input.files || [])].filter(f => f.type.startsWith('image/')); input.value = '';
+    if (!files.length) return;
+    btns.forEach(b => b.disabled = true);
+    const galBtn = [...btns].find(b => b.dataset.pickBtn === 'gal'), label = galBtn.innerHTML;
+    galBtn.innerHTML = `${ico('clock')}جاري الضغط…`;
+    const out = [];
+    for (const f of files) { try { out.push(await compressImage(f)); } catch (e) { toast('تعذّر قراءة صورة: ' + e.message, true); } }
+    btns.forEach(b => b.disabled = false); galBtn.innerHTML = label;
+    if (out.length) onAdd(out);
+  };
+  cam.onchange = () => handle(cam); gal.onchange = () => handle(gal);
+}
+// مصغّرات: images = [{data, bytes, pending?}]
+function thumbsHtml(images, { removable = false, loading = false } = {}) {
+  if (loading) return `<div class="thumbs-empty">${ico('clock')} جاري تحميل الصور…</div>`;
+  if (!images.length) return `<div class="thumbs-empty">ما اكو صور. صوّر الوصل بالكاميرا أو اختاره من المعرض.</div>`;
+  return `<div class="thumbs">${images.map((im, i) => `<div class="thumb">
+    <button type="button" class="thumb-open" data-thumb="${i}" aria-label="فتح الصورة ${i + 1}"><img src="${im.data}" alt="" loading="lazy"></button>
+    <span class="thumb-kb">${Math.round(im.bytes / 1024)}KB${im.pending ? ' · جديدة' : ''}</span>
+    ${removable ? `<button type="button" class="thumb-del" data-thumb-del="${i}" aria-label="شيل الصورة">${ico('trash')}</button>` : ''}
+  </div>`).join('')}</div>`;
+}
+const imgCache = new Map(); // invoiceId → صور محمّلة
+async function invoiceImages(id, fresh = false) {
+  if (!fresh && imgCache.has(id)) return imgCache.get(id);
+  const list = await B.images(id); imgCache.set(id, list); return list;
+}
+async function addInvoiceImages(v, images) {
+  const now = Date.now();
+  for (let i = 0; i < images.length; i += IMG_BATCH)
+    await B.batch(images.slice(i, i + IMG_BATCH).map(im => ({ type: 'set', col: 'invoiceImages', id: B.newId(), data: { ts: now, invoiceId: v.id, supplierId: v.supplierId, ...im, staffId: S.user.id, staffName: S.user.name } })));
+}
+// إضافة صور لفاتورة محفوظة: إضافة بس (مو تعديل)، فتنسمح للكل؛ والعداد يتحدّث لحاله (القواعد تسمح بتغيير imageCount فقط)
+async function appendImages(v, images) {
+  await addInvoiceImages(v, images);
+  const cur = S.invoices.find(x => x.id === v.id) || v;
+  await B.update('invoices', v.id, { imageCount: (cur.imageCount || 0) + images.length });
+  imgCache.delete(v.id);
+}
+async function deleteInvoiceImage(v, img, why) {
+  const aid = B.newId(), now = Date.now(), cur = S.invoices.find(x => x.id === v.id) || v;
+  await B.batch([
+    { type: 'set', col: 'audit', id: aid, data: { ts: now, action: 'delete', kind: 'image', invoiceId: v.id, imageId: img.id, supplierName: supName(v), ref: v.ref || '', moveTs: img.ts, moveStaff: img.staffName, by: S.user.name, byId: S.user.id, why, before: { bytes: img.bytes, w: img.w, h: img.h } } },
+    { type: 'update', col: 'invoiceImages', id: img.id, data: { deleted: true, deletedBy: S.user.name, deletedAt: now, lastAuditId: aid } },
+    { type: 'update', col: 'invoices', id: v.id, data: { imageCount: Math.max(0, (cur.imageCount || 1) - 1), lastAuditId: aid } }
+  ]);
+  imgCache.delete(v.id);
+}
+// فتح صور فاتورة بالعارض مباشرة (من قائمة الفواتير وكشف الحساب)
+async function openInvoiceImages(v) {
+  if (!v) return;
+  let list;
+  try { list = await invoiceImages(v.id); } catch (e) { return toast('تعذّر تحميل الصور: ' + e.message, true); }
+  if (!list.length) return toast('ما اكو صور محفوظة لهذي الفاتورة', true);
+  imageViewer(list.map(x => x.data), 0, `فاتورة ${supName(v)}${v.ref ? ' — وصل ' + v.ref : ''}`);
+}
+const imgBadge = v => +v.imageCount > 0 ? `<button class="link img-link" data-imgs="${v.id}" aria-label="صور الفاتورة">${ico('image')}${v.imageCount}</button>` : '';
+function bindImgLinks(scope = document) { scope.querySelectorAll('[data-imgs]').forEach(b => b.onclick = () => openInvoiceImages(S.invoices.find(x => x.id === b.dataset.imgs))); }
+
+/* ── عارض بالتكبير: أصابع، عجلة الماوس، أزرار، ونقرتين ── */
+function imageViewer(srcs, index = 0, title = 'صورة الفاتورة') {
+  let i = index, z = { s: 1, x: 0, y: 0 }, start = null;
+  const pts = new Map();
+  const el = document.createElement('div');
+  el.className = 'viewer'; el.setAttribute('role', 'dialog'); el.setAttribute('aria-modal', 'true'); el.setAttribute('aria-label', title);
+  el.innerHTML = `<div class="vw-bar">
+      <button class="vw-btn" data-vw="close" aria-label="إغلاق">${ico('x')}</button>
+      <span class="vw-title"></span>
+      <button class="vw-btn" data-vw="out" aria-label="تصغير">${ico('minus')}</button>
+      <span class="vw-zoom">100%</span>
+      <button class="vw-btn" data-vw="in" aria-label="تكبير">${ico('plus')}</button>
+      <button class="vw-btn" data-vw="reset" aria-label="إرجاع">${ico('reset')}</button>
+    </div>
+    <div class="vw-stage"><img alt="" draggable="false"></div>
+    ${srcs.length > 1 ? `<div class="vw-strip">${srcs.map((s, n) => `<button class="vw-th" data-vw-i="${n}" aria-label="صورة ${n + 1}"><img src="${s}" alt=""></button>`).join('')}</div>` : ''}`;
+  document.body.appendChild(el);
+  const img = el.querySelector('.vw-stage img'), stage = el.querySelector('.vw-stage');
+  const apply = (anim = true) => {
+    img.style.transition = anim ? 'transform .15s' : 'none';
+    img.style.transform = `translate(${z.x}px, ${z.y}px) scale(${z.s})`;
+    el.querySelector('.vw-zoom').textContent = Math.round(z.s * 100) + '%';
+  };
+  const show = n => {
+    i = n; z = { s: 1, x: 0, y: 0 }; img.src = srcs[i];
+    el.querySelector('.vw-title').textContent = `${title} — ${i + 1} / ${srcs.length}`;
+    el.querySelectorAll('.vw-th').forEach((b, k) => b.classList.toggle('on', k === i));
+    apply(false);
+  };
+  const zoom = f => { const s = Math.min(6, Math.max(1, z.s * f)); z = s === 1 ? { s, x: 0, y: 0 } : { ...z, s }; apply(); };
+  const close = () => { el.remove(); document.removeEventListener('keydown', key); };
+  const key = e => { if (e.key === 'Escape') close(); if (e.key === 'ArrowLeft' && i < srcs.length - 1) show(i + 1); if (e.key === 'ArrowRight' && i > 0) show(i - 1); };
+  document.addEventListener('keydown', key);
+  el.querySelector('[data-vw="close"]').onclick = close;
+  el.querySelector('[data-vw="in"]').onclick = () => zoom(1.5);
+  el.querySelector('[data-vw="out"]').onclick = () => zoom(1 / 1.5);
+  el.querySelector('[data-vw="reset"]').onclick = () => { z = { s: 1, x: 0, y: 0 }; apply(); };
+  el.querySelectorAll('[data-vw-i]').forEach(b => b.onclick = () => show(+b.dataset.vwI));
+  stage.onwheel = e => { e.preventDefault(); zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15); };
+  stage.ondblclick = () => { z = z.s > 1 ? { s: 1, x: 0, y: 0 } : { s: 2.5, x: 0, y: 0 }; apply(); };
+  stage.onpointerdown = e => {
+    stage.setPointerCapture?.(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = [...pts.values()];
+    start = { d: p.length > 1 ? Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) : 0, s: z.s, x: z.x, y: z.y, px: e.clientX, py: e.clientY };
+  };
+  stage.onpointermove = e => {
+    if (!pts.has(e.pointerId) || !start) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = [...pts.values()];
+    if (p.length > 1 && start.d) z = { ...z, s: Math.min(6, Math.max(1, start.s * Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) / start.d)) };
+    else if (z.s > 1) z = { ...z, x: start.x + e.clientX - start.px, y: start.y + e.clientY - start.py };
+    else return;
+    apply(false);
+  };
+  stage.onpointerup = stage.onpointercancel = e => { pts.delete(e.pointerId); start = null; if (z.s <= 1.02) { z = { s: 1, x: 0, y: 0 }; apply(); } };
+  show(i);
+  el.querySelector('[data-vw="close"]').focus();
 }
 
 /* ═════════════ Item card (بطاقة المادة) ═════════════ */
@@ -1841,7 +2073,7 @@ function admSystem() {
     <button class="btn" id="imp">${ico('upload')}اختيار ملف الإكسل</button>
     <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
     <h2>النسخة الاحتياطية</h2>
-    <p class="small muted">ينزّل ملف بيه كل البيانات (المواد، الأماكن، الموظفين، كل الحركات، الجرودات، الموردين والفواتير والتسديدات). احتفظ بيه بمكان آمن. يُنصح كل أسبوع أو كل شهر.</p>
+    <p class="small muted">ينزّل ملف بيه كل البيانات (المواد، الأماكن، الموظفين، كل الحركات، الجرودات، الموردين والفواتير والتسديدات وصور الفواتير). احتفظ بيه بمكان آمن. يُنصح كل أسبوع أو كل شهر.</p>
     <p class="small">آخر نسخة من هذا الجهاز: <b>${last ? dt(+last) : 'ما اكو'}</b></p>
     <button class="btn" id="bk">${ico('download')}تنزيل نسخة احتياطية</button>
     <hr style="border:0;border-top:1px solid var(--line);margin:22px 0">
@@ -1850,8 +2082,13 @@ function admSystem() {
     ${B.mode === 'firebase' ? '<button class="btn danger" id="dv-out">إلغاء تفعيل هذا الجهاز</button>' : '<span class="mode">وضع تجربة</span>'}`;
   $('#imp').onclick = () => $('#imp-f').click();
   $('#imp-f').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importExcel(f); };
-  $('#bk').onclick = () => {
-    const data = { exportedAt: new Date().toISOString(), title: CONFIG.title, items: S.items, locations: S.locations, staff: S.staff.map(({ pinHash, ...x }) => x), moves: S.allMoves, stocktakes: S.stocktakes, audit: S.audit, suppliers: S.suppliers, invoices: S.invoices, payments: S.payments };
+  $('#bk').onclick = async () => {
+    const bk = $('#bk'); bk.disabled = true;
+    let invoiceImages = [];
+    try { if (S.invoices.some(v => +v.imageCount > 0)) { toast('جاري تحميل صور الفواتير للنسخة…'); invoiceImages = await B.allImages(); } }
+    catch (e) { bk.disabled = false; return toast('تعذّر تحميل الصور: ' + e.message, true); }
+    bk.disabled = false;
+    const data = { exportedAt: new Date().toISOString(), title: CONFIG.title, items: S.items, locations: S.locations, staff: S.staff.map(({ pinHash, ...x }) => x), moves: S.allMoves, stocktakes: S.stocktakes, audit: S.audit, suppliers: S.suppliers, invoices: S.invoices, payments: S.payments, invoiceImages };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }));
     a.download = `نسخة_احتياطية_${today()}.json`; a.click();
