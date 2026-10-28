@@ -442,6 +442,7 @@ function vHome() {
   const locCount = id => items.filter(it => (bal.get(it.id + '|' + id) || 0) > 0.0005).length;
   $('#view-root').innerHTML = `
     <div class="topline"><h1>الرئيسية</h1>${modeTag()}</div>
+    ${storageAlert()}
     <div class="actions">
       ${['in', 'out', 'transfer', 'waste', 'return'].map(t => `<button class="act ${t}" data-t="${t}"><span class="ic">${ico(TYPES[t].ic)}</span><span class="tx"><b>${TYPES[t].label}</b><small>${ACT_DESC[t]}</small></span><span class="bgi" aria-hidden="true">${ico(TYPES[t].ic)}</span><span class="goi" aria-hidden="true">${ico('arrow')}</span></button>`).join('')}
     </div>
@@ -1792,11 +1793,12 @@ function vAdmin() {
       <button data-tab="locations" class="${tab === 'locations' ? 'on' : ''}">أماكن الخزن</button>
       <button data-tab="staff" class="${tab === 'staff' ? 'on' : ''}">الموظفين</button>
       <button data-tab="suppliers" class="${tab === 'suppliers' ? 'on' : ''}">الموردين</button>
+      <button data-tab="storage" class="${tab === 'storage' ? 'on' : ''}">${storageEstimate().pct >= STORAGE_WARN ? '⚠ ' : ''}التخزين</button>
       <button data-tab="system" class="${tab === 'system' ? 'on' : ''}">النظام</button>
     </div>
     <div class="card" id="adm"></div>`;
   document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => { S.adminTab = b.dataset.tab; vAdmin(); });
-  ({ items: admItems, locations: admLocs, staff: admStaff, suppliers: () => vSuppliers($('#adm')), system: admSystem })[tab]();
+  ({ items: admItems, locations: admLocs, staff: admStaff, suppliers: () => vSuppliers($('#adm')), storage: admStorage, system: admSystem })[tab]();
 }
 const used = (field, id) => S.moves.some(m => m[field] === id);
 function admItems() {
@@ -2064,6 +2066,54 @@ async function importExcel(file) {
     });
 }
 
+/* ═════════════ Storage estimate (التخزين) ═════════════
+   تقدير لحجم البيانات بـ Firestore مقابل حد الخطة (المجانية Spark = 1GB). الصور هي الأغلب:
+   كل صورة ~250KB وتنخزن نص base64 فتصير ~340KB. الصور المحذوفة تبقى بالقاعدة فتنحسب.
+   بعد الترقية لخطة Blaze: ضيف storageLimitGB بـ config.js (مثلاً 5) حتى يتغير الحد. */
+const STORAGE_LIMIT_GB = CONFIG.storageLimitGB || 1;
+const STORAGE_WARN = 80, IMG_STORED = 340 * 1024;
+function storageEstimate() {
+  const imgs = S.invoices.reduce((a, v) => a + (+v.imageCount || 0), 0) + S.audit.filter(x => x.kind === 'image' && x.action === 'delete').length;
+  const json = new Blob([JSON.stringify([S.items, S.locations, S.staff, S.allMoves, S.stocktakes, S.audit, S.suppliers, S.invoices, S.payments])]).size;
+  const other = json * 2; // البيانات + فهارس Firestore (تقريباً)
+  const imgBytes = imgs * IMG_STORED, used = imgBytes + other, limit = STORAGE_LIMIT_GB * 1024 ** 3;
+  return { imgs, imgBytes, other, used, limit, pct: used / limit * 100 };
+}
+const mb = n => n >= 1024 ** 3 ? (n / 1024 ** 3).toFixed(2) + ' GB' : (n / 1024 ** 2).toFixed(n < 10 * 1024 ** 2 ? 1 : 0) + ' MB';
+// تحذير بالرئيسية للمدير بس، من يوصل 80%
+function storageAlert() {
+  if (!isAdmin()) return '';
+  const e = storageEstimate();
+  if (e.pct < STORAGE_WARN) return '';
+  return `<div class="store-alert">${ico('alert')}<div><b>الخزن قرب يمتلي: ${Math.round(e.pct)}% من ${STORAGE_LIMIT_GB}GB</b><span>إذا امتلى، Firebase يوقف تسجيل كل شي. رقّي لخطة Blaze — التفاصيل بالإدارة ← التخزين.</span></div></div>`;
+}
+function admStorage() {
+  const e = storageEstimate(), pct = Math.min(100, e.pct), lvl = e.pct >= STORAGE_WARN ? 'bad' : e.pct >= 60 ? 'warn' : 'ok';
+  const left = Math.max(0, Math.floor((e.limit - e.used) / IMG_STORED));
+  $('#adm').innerHTML = `
+    <h2>${ico('stock')} التخزين بـ Firebase</h2>
+    <div class="store-meter ${lvl}">
+      <div class="sm-top"><b>${Math.round(e.pct)}%</b><span>${mb(e.used)} من ${STORAGE_LIMIT_GB} GB</span></div>
+      <div class="sm-bar"><i style="width:${pct.toFixed(1)}%"></i><em style="inset-inline-start:${STORAGE_WARN}%"></em></div>
+      <div class="sm-legend"><span>0</span><span class="w" style="inset-inline-start:${STORAGE_WARN}%">تحذير ${STORAGE_WARN}%</span><span>${STORAGE_LIMIT_GB} GB</span></div>
+    </div>
+    ${lvl === 'bad' ? `<div class="store-alert">${ico('alert')}<div><b>وصلت ${Math.round(e.pct)}% — وكت الترقية</b><span>إذا امتلى الخزن، Firebase يوقف كل الكتابة (حتى الصرف والجرد) لحد ما ترقّي.</span></div></div>`
+      : lvl === 'warn' ? `<p class="hint" style="color:var(--warn);font-weight:700">قربت من التحذير. خطط للترقية خلال الأشهر الجاية.</p>` : ''}
+    <div class="kpis" style="margin-top:16px">
+      <div class="kpi k-blue"><span class="ki">${ico('image')}</span><div><div class="l">صور الفواتير</div><div class="v">${e.imgs}</div>${sub(mb(e.imgBytes) + ' تقريباً')}</div></div>
+      <div class="kpi k-green"><span class="ki">${ico('log')}</span><div><div class="l">باقي البيانات</div><div class="v">${mb(e.other)}</div>${sub('المواد، الحركات، الفواتير، السجل')}</div></div>
+      <div class="kpi k-amber"><span class="ki">${ico('camera')}</span><div><div class="l">يتحمل بعد</div><div class="v">~${left.toLocaleString('en-US')}</div>${sub('صورة تقريباً')}</div></div>
+    </div>
+    <p class="small muted">هذا <b>تقدير</b> محسوب من عدد الصور وحجم البيانات. الرقم الدقيق: Firebase Console ← Firestore Database ← تبويب Usage. الصور المحذوفة تبقى بالقاعدة (حتى يبقى السجل كامل) فتنحسب.</p>
+    <hr style="border:0;border-top:1px solid var(--line);margin:18px 0">
+    <h2>${ico('wallet')} لما توصل التحذير</h2>
+    <ol class="small store-steps">
+      <li>Firebase Console ← مشروع stock-dc518 ← Upgrade ← خطة <b>Blaze</b> (تربط بطاقة، والدفع شهري حسب الاستخدام).</li>
+      <li>الـ 1GB الأول يبقى مجاني؛ الزيادة تقريباً 0.18–0.21$ لكل GB بالشهر.</li>
+      <li>حط <b>Budget alert</b> (مثلاً 2$ بالشهر) حتى يوصلك إيميل إذا الكلفة زادت.</li>
+      <li>گلّي حتى أرفع الحد هنا (storageLimitGB) وينطفي التحذير.</li>
+    </ol>`;
+}
 function admSystem() {
   const last = localStorage.getItem('inv_last_backup');
   $('#adm').innerHTML = `
